@@ -43,13 +43,13 @@ class GravityCompNode(Node):
     # Joint limits from URDF (rad) - with safety margin
     JOINT_LIMITS = {
         # Joint: (lower, upper)
-        'rev1': (-2.09, 2.09),    # ±120°
-        'rev2': (-1.57, 1.57),    # ±90°
-        'rev3': (-2.09, 2.09),    # ±120°
-        'rev4': (-0.5, 2.62),      # 0° ~ 150°
-        'rev5': (-2.09, 2.09),    # ±120°
-        'rev6': (-1.57, 1.57),    # ±90°
-        'rev7': (-0.96, 0.96),    # ±55°
+        'rev1': (-3.09, 3.09),    # ±120°
+        'rev2': (-2.57, 2.57),    # ±90°
+        'rev3': (-3.09, 3.09),    # ±120°
+        'rev4': (-0.5, 3.62),      # 0° ~ 150°
+        'rev5': (-3.09, 3.09),    # ±120°
+        'rev6': (-2.57, 2.57),    # ±90°
+        'rev7': (-1.96, 1.96),    # ±55°
     }
     
     # Safety margin from joint limits (rad) - approximately 5 degrees
