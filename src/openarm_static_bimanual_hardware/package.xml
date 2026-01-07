@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>openarm_static_bimanual_hardware</name>
+  <version>0.1.0</version>
+  <description>ros2_control SystemInterface for OpenArm bimanual</description>
+
+  <maintainer email="mintlabskh@todo.todo">mintlabskh</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 런타임/빌드 의존성 -->
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rcutils</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <!-- pluginlib가 읽을 플러그인 설명 XML을 ros2_control에 export -->
+    <ros2_control plugin="openarm_static_bimanual_hardware_plugins.xml"/>
+  </export>
+</package>

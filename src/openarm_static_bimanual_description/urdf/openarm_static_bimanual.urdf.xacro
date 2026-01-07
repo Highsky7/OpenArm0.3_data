@@ -1,0 +1,220 @@
+<?xml version="1.0"?>
+<robot name="openarm_bimanual" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===== Arguments ===== -->
+  <xacro:arg name="use_mock_hardware" default="false"/>
+  <xacro:arg name="zero_pos"          default="up"/>
+  <xacro:arg name="can_device"        default="can0"/>
+  <xacro:arg name="can_fd"            default="false"/>
+  <xacro:arg name="disable_torque"    default="true"/>
+  <xacro:arg name="use_ros2_control"  default="true"/>
+  <xacro:arg name="use_grippers"      default="false"/>
+  <xacro:arg name="mount_half_x"      default="0.30"/>
+  <xacro:arg name="left_zero_pos"     default=""/>
+  <xacro:arg name="right_zero_pos"    default=""/>
+  <xacro:arg name="left_prefix"       default="left_"/>
+  <xacro:arg name="right_prefix"      default="right_"/>
+  <xacro:arg name="left_can_device"   default=""/>
+  <xacro:arg name="right_can_device"  default=""/>
+
+  <!-- ===== Properties ===== -->
+  <xacro:property name="zero_pos_eff"         value="${xacro.arg('zero_pos')}"/>
+  <xacro:property name="mount_half_x_eff"     value="${float(xacro.arg('mount_half_x'))}"/>
+  <xacro:property name="left_prefix_eff"      value="${xacro.arg('left_prefix')}"/>
+  <xacro:property name="right_prefix_eff"     value="${xacro.arg('right_prefix')}"/>
+  <xacro:property name="left_zero_pos_eff"
+    value="${xacro.arg('left_zero_pos')  if xacro.arg('left_zero_pos')  != '' else zero_pos_eff}"/>
+  <xacro:property name="right_zero_pos_eff"
+    value="${xacro.arg('right_zero_pos') if xacro.arg('right_zero_pos') != '' else zero_pos_eff}"/>
+  <xacro:property name="left_can_eff"
+    value="${xacro.arg('left_can_device')  if xacro.arg('left_can_device')  != '' else xacro.arg('can_device')}"/>
+  <xacro:property name="right_can_eff"
+    value="${xacro.arg('right_can_device') if xacro.arg('right_can_device') != '' else xacro.arg('can_device')}"/>
+  <xacro:property name="use_ros2_control_eff"
+    value="${str(xacro.arg('use_ros2_control')) in ['1','true','True','TRUE']}"/>
+  <xacro:property name="can_fd_eff"
+    value="${str(xacro.arg('can_fd')) in ['1','true','True','TRUE']}"/>
+  <xacro:property name="disable_torque_eff"
+    value="${str(xacro.arg('disable_torque')) in ['1','true','True','TRUE']}"/>
+  <xacro:property name="use_mock_hw_eff"
+    value="${str(xacro.arg('use_mock_hardware')) in ['1','true','True','TRUE']}"/>
+
+  <!-- ===== Include macro ===== -->
+  <xacro:include filename="$(find openarm_static_bimanual_description)/urdf/openarm_sb_robot.xacro"/>
+
+  <!-- ===== Base link ===== -->
+  <link name="base_link"/>
+
+  <!-- ===== Left Arm ===== -->
+  <xacro:openarm_robot side="left" prefix="${left_prefix_eff}"  zero_pos="${left_zero_pos_eff}"  use_grippers="$(arg use_grippers)"/>
+  <joint name="left_mount" type="fixed">
+    <parent link="base_link"/>
+    <child  link="${left_prefix_eff}dummy_link"/>
+    <origin xyz="${mount_half_x_eff} 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== Right Arm ===== -->
+  <xacro:openarm_robot side="right" prefix="${right_prefix_eff}" zero_pos="${right_zero_pos_eff}" use_grippers="$(arg use_grippers)"/>
+  <joint name="right_mount" type="fixed">
+    <parent link="base_link"/>
+    <child  link="${right_prefix_eff}dummy_link"/>
+    <origin xyz="-${mount_half_x_eff} 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===== LEFT ARM ros2_control ===== -->
+  <xacro:if value="${use_ros2_control_eff}">
+    <ros2_control name="left_arm_hw" type="system">
+      <hardware>
+        <plugin>${'fake_components/GenericSystem' if use_mock_hw_eff else 'openarm_static_bimanual_hardware/OpenArmHWFlex'}</plugin>
+        <param name="mock_sensor_commands">${use_mock_hw_eff}</param>
+        <param name="can_device">${left_can_eff}</param>
+        <param name="can_fd">${can_fd_eff}</param>
+        <param name="disable_torque">${disable_torque_eff}</param>
+        <param name="prefix">${left_prefix_eff}</param>
+        <param name="motor_types">DM4340,DM4340,DM4340,DM4340,DM4310,DM4310,DM4310</param>
+        <param name="kp">80,80,20,55,5,5,5</param>
+        <param name="kd">2.75,2.5,0.7,0.4,0.7,0.6,0.5</param>
+        <param name="can_device_ids">0x01,0x02,0x03,0x04,0x05,0x06,0x07</param>
+        <param name="can_master_ids">0x11,0x12,0x13,0x14,0x15,0x16,0x17</param>
+      </hardware>
+
+      <!-- 각 조인트 인터페이스 명시 -->
+      <joint name="${left_prefix_eff}rev1">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${left_prefix_eff}rev2">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${left_prefix_eff}rev3">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${left_prefix_eff}rev4">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${left_prefix_eff}rev5">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${left_prefix_eff}rev6">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${left_prefix_eff}rev7">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <!-- Gripper joint (prismatic) - only for mock hardware -->
+      <xacro:if value="${use_mock_hw_eff}">
+        <joint name="${left_prefix_eff}left_pris1">
+          <command_interface name="position"/>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:if>
+
+
+    </ros2_control>
+  </xacro:if>
+
+  <!-- ===== RIGHT ARM ros2_control ===== -->
+  <xacro:if value="${use_ros2_control_eff}">
+    <ros2_control name="right_arm_hw" type="system">
+      <hardware>
+        <plugin>${'fake_components/GenericSystem' if use_mock_hw_eff else 'openarm_static_bimanual_hardware/OpenArmHWFlex'}</plugin>
+        <param name="fake_sensor_commands">${use_mock_hw_eff}</param>
+        <param name="can_device">${right_can_eff}</param>
+        <param name="can_fd">${can_fd_eff}</param>
+        <param name="disable_torque">${disable_torque_eff}</param>
+        <param name="prefix">${right_prefix_eff}</param>
+        <param name="motor_types">DM4340,DM4340,DM4340,DM4340,DM4310,DM4310,DM4310</param>
+        <param name="kp">80,80,20,55,5,5,5</param>
+        <param name="kd">2.75,2.5,0.7,0.4,0.7,0.6,0.5</param>
+        <param name="can_device_ids">0x21,0x22,0x23,0x24,0x25,0x26,0x27</param>
+        <param name="can_master_ids">0x31,0x32,0x33,0x34,0x35,0x36,0x37</param>
+      </hardware>
+
+      <joint name="${right_prefix_eff}rev1">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${right_prefix_eff}rev2">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${right_prefix_eff}rev3">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${right_prefix_eff}rev4">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${right_prefix_eff}rev5">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${right_prefix_eff}rev6">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <joint name="${right_prefix_eff}rev7">
+        <command_interface name="position"/>
+        <command_interface name="effort"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+      <!-- Gripper joint (prismatic) - only for mock hardware -->
+      <xacro:if value="${use_mock_hw_eff}">
+        <joint name="${right_prefix_eff}left_pris1">
+          <command_interface name="position"/>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+        </joint>
+      </xacro:if>
+    </ros2_control>
+  </xacro:if>
+</robot>

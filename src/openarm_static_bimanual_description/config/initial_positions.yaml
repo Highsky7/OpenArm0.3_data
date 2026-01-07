@@ -1,0 +1,29 @@
+# Default initial positions for bimanual fake hardware
+# (prefix: left_ / right_)
+
+initial_positions:
+  # --- Left arm (revolute) ---
+  left_rev1: 0.0
+  left_rev2: 0.0
+  left_rev3: 0.0
+  left_rev4: 0.0
+  left_rev5: 0.0
+  left_rev6: 0.0
+  left_rev7: 0.0
+
+  # --- Right arm (revolute) ---
+  right_rev1: 0.0
+  right_rev2: 0.0
+  right_rev3: 0.0
+  right_rev4: 0.0
+  right_rev5: 0.0
+  right_rev6: 0.0
+  right_rev7: 0.0
+
+  # --- (optional) Gripper prismatic joints ---
+  # 주의: 우리 ros2_control 블록에 프리즘 조인트가 안 들어가 있으면 굳이 필요 없음.
+  # xacro에서 조인트 이름은 "${prefix}left_pris1", "${prefix}right_pris2" 임.
+  left_left_pris1: 0.0
+  left_right_pris2: 0.0
+  right_left_pris1: 0.0
+  right_right_pris2: 0.0

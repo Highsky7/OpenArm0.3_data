@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd"
+            schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>openarm_static_bimanual_bringup</name>
+  <version>0.1.0</version>
+  <description>Bringup package for OpenArm static bimanual system</description>
+  <maintainer email="mintlabskh@todo.todo">mintlabskh</maintainer>
+  <license>Apache-2.0</license>
+
+  <!-- Build tool -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Core ROS dependencies -->
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+
+  <!-- ROS2 control stack -->
+  <depend>controller_manager</depend>
+  <depend>ros2_control</depend>
+  <depend>ros2_controllers</depend>
+
+  <!-- Robot description -->
+  <depend>xacro</depend>
+  <depend>robot_state_publisher</depend>
+  <depend>joint_state_publisher</depend>
+  <depend>joint_state_broadcaster</depend>
+
+  <!-- Visualization -->
+  <depend>rviz2</depend>
+
+  <!-- OpenArm-specific packages -->
+  <depend>openarm_static_bimanual_description</depend>
+  <depend>openarm_static_bimanual_hardware</depend>
+  <!-- <depend>openarm_arduino_bridge</depend> -->
+
+  <!-- (Optional) Testing -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+

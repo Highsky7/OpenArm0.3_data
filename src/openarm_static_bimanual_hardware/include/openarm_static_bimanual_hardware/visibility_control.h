@@ -1,0 +1,34 @@
+#pragma once
+// Cross-platform symbol visibility helpers
+
+#if defined _WIN32 || defined __CYGWIN__
+  #ifdef __GNUC__
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_EXPORT __attribute__((dllexport))
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_IMPORT __attribute__((dllimport))
+  #else
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_EXPORT __declspec(dllexport)
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_IMPORT __declspec(dllimport)
+  #endif
+
+  #ifdef OPENARM_STATIC_BIMANUAL_HARDWARE_BUILDING_DLL
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_PUBLIC OPENARM_STATIC_BIMANUAL_HARDWARE_EXPORT
+  #else
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_PUBLIC OPENARM_STATIC_BIMANUAL_HARDWARE_IMPORT
+  #endif
+
+  #define OPENARM_STATIC_BIMANUAL_HARDWARE_PUBLIC_TYPE OPENARM_STATIC_BIMANUAL_HARDWARE_PUBLIC
+  #define OPENARM_STATIC_BIMANUAL_HARDWARE_LOCAL
+#else
+  #define OPENARM_STATIC_BIMANUAL_HARDWARE_EXPORT __attribute__((visibility("default")))
+  #define OPENARM_STATIC_BIMANUAL_HARDWARE_IMPORT
+
+  #if __GNUC__ >= 4
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_PUBLIC __attribute__((visibility("default")))
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_LOCAL  __attribute__((visibility("hidden")))
+  #else
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_PUBLIC
+    #define OPENARM_STATIC_BIMANUAL_HARDWARE_LOCAL
+  #endif
+
+  #define OPENARM_STATIC_BIMANUAL_HARDWARE_PUBLIC_TYPE
+#endif

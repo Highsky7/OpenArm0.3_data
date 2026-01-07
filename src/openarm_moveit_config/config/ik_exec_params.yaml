@@ -1,0 +1,8 @@
+ik_exec_node:
+  ros__parameters:
+    group_name: "arm"
+    ik_link: "gripper_center"
+    base_frame: "link1"
+    joint_names: ["rev1","rev2","rev3","rev4","rev5","rev6","rev7"]
+    seed: [0.0, -0.3, 0.6, 0.0, 0.0, 0.0, 0.0]
+    move_time_sec: 3

@@ -1,0 +1,6 @@
+<library path="openarm_static_bimanual_hardware">
+  <class
+    name="openarm_static_bimanual_hardware/OpenArmHWFlex"
+    type="openarm_static_bimanual_hardware::OpenArmHWFlex"
+    base_class_type="hardware_interface::SystemInterface"/>
+</library>

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openarm_dataset_node"
+version = "0.0.0"
+description = "OpenArm Dataset Node for encoder reading"
+license = {text = "TODO: License declaration"}
+maintainers = [{name = "mintlabskh", email = "mintlabskh@todo.todo"}]
+dependencies = ["setuptools"]
+
+[tool.setuptools]
+packages = ["openarm_dataset_node"]
+zip-safe = true
+
+[tool.setuptools.data-files]
+"share/ament_index/resource_index/packages" = ["resource/openarm_dataset_node"]
+"share/openarm_dataset_node" = ["package.xml"]
+
+[project.scripts]
+encoder_reader = "openarm_dataset_node.encoder_reader:main"

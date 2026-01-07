@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openarm_player"
+version = "0.0.0"
+description = "OpenArm Player Node for waypoint playback"
+license = {text = "TODO: License declaration"}
+maintainers = [{name = "mintlabskh", email = "mintlabskh@todo.todo"}]
+dependencies = ["setuptools"]
+
+[tool.setuptools]
+packages = ["openarm_player"]
+zip-safe = true
+
+[tool.setuptools.data-files]
+"share/ament_index/resource_index/packages" = ["resource/openarm_player"]
+"share/openarm_player" = ["package.xml"]
+"share/openarm_player/launch" = ["launch/play_waypoints.launch.py"]
+
+[project.scripts]
+player_node = "openarm_player.player_node:main"

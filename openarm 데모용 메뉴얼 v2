@@ -1,0 +1,119 @@
+# OpenArm 실행 매뉴얼 (CAN + ROS2)
+
+본 문서는 OpenArm 한팔 / 양팔 버전 실행 절차를 정리한 매뉴얼입니다.  
+터미네이터(Terminator) 창을 최소 **3개 이상** 띄워 병렬 실행하는 것을 권장합니다.
+
+---
+
+## 📦 환경 준비
+```bash
+openarm   # (alias: ROS2 humble 환경 활성화)
+
+1. CAN 연결
+  1) 연결 포트 확인
+  	ls /dev/ttyACM*
+  2) scland로 CAN 디바이스 생성
+  	sudo slcand -o -c -s8 -S 1000000 /dev/ttyACM0 can0
+	sudo ip link set can0 up type can bitrate 1000000	
+	sudo ip link set can0 txqueuelen 1000
+	ip -details link show can0
+	  	데이터 확인(옵션) : candump can0
+
+2. 아두이노 연결(그리퍼) 
+  1) 연결 포트 확인 
+  	ls /dev/ttyACM*
+  2) 브릿지 실행
+  	ros2 launch openarm_arduino_bridge arduino_servo.launch.py port:=/dev/ttyACM1
+
+3. 한 팔 버전 Bringup 실행(모터 색으로 상태 체크: 빨간불: 전원 인가, 구동 X, 파란불: 전원인가, CAN메시지 받음, 구동 X, 초록불: 전원인가, CAN메시지 받음, 구동 O)
+  """"""" 이 코드는 무슨 일이 있어도 원점(쭉 편 상태를 유지해야함)"""""""""
+  
+	ros2 launch openarm_bringup openarm.launch.py \
+	can_device:=can0 \
+	can_fd:=false \
+	disable_torque:=false \
+	use_mock_hardware:=false \
+	gripper_use_mock:=true
+ 
+  2) Trajectory 데모 실행
+  	ros2 launch openarm_bringup test_trajectory.launch.py
+  	
+4. 양팔 버전 실행(모터 색으로 상태 체크: 빨간불: 전원 인가, 구동 X, 파란불: 전원인가, CAN메시지 받음, 구동 X, 초록불: 전원인가, CAN메시지 받음, 구동 O)
+  1) Bringup 실행(모터 초록불)
+    """"""" 이 코드는 무슨 일이 있어도 원점(쭉 편 상태를 유지해야함)"""""""""
+  	ros2 launch openarm_static_bimanual_bringup sbopenarm.launch.py \
+	can_device:=can0 \
+	can_fd:=false \
+	disable_torque:=false \
+	use_mock_hardware:=false \
+	rviz:=true
+
+		active_mode:=jtc → JointTrajectoryController 모드 (기본)
+
+		active_mode:=fpc → ForwardPositionController 모드
+
+		active_mode:=teleop → Teleop 모드
+  2) 데모 실행
+   ros2 launch openarm_static_bimanual_bringup play_bimanual_scenario.launch.py
+   
+  3) CAN 통신 확인(모터 파란불)
+    	ros2 launch openarm_static_bimanual_bringup sbopenarm.launch.py \
+	can_device:=can0 \
+	can_fd:=false \
+	disable_torque:=true \
+	use_mock_hardware:=false \
+	rviz:=true
+
+(전원 인가하고, 아두이노와 연결선 다시 꽂을 것. 컴퓨터-선 부분 말고 선-아두이노 부분)
+
+ros2 run openarm_recorder recorder_node
+ros2 launch openarm_player play_waypoints.launch.py waypoint_file:=recorded_waypoints_20250924_182946.json
+
+
+[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+왼팔 시나리오
+
+왼팔 큐브 잡는 곳 상단 6초간 이동
+[1.3, -0.2, -1.571, 1.7, -0.2, 0.95, 0.2]
+
+왼팔 큐브 잡는 곳 2초간 이동
+[1.3, -0.25, -1.571, 1.75, -0.2, 0.95, 0.2]
+
+왼팔 2초 유지 (그리퍼 잡을 시간, 명령 없으면 됨)
+
+왼팔 큐브 돌리는 곳 6초간 이동
+[0.0, 0.6, -1.571, 2.0, 0.0, -0.2, 0.0]
+
+왼팔 16 초 유지(명령 없으면 됨)
+
+왼팔 큐브 내려놓는곳 6초간 이동
+[1.3, -0.2, -1.571, 1.7, -0.2, 0.95, 0.2]
+
+왼팔 원점 복귀 6초간 이동
+[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+오른팔 시나리오
+
+오른팔 큐브 돌리는 곳 직전 16초간 이동
+[0.0, 0.75, 1.571, 2.1, 1.571, 0.2, 0.2]
+
+오른팔 큐브 돌리는 곳 4초간 이동
+[0.0, 0.55, 1.571, 1.9, 1.571, 0.2, 0.2]
+
+오른팔 2초 유지 (그리퍼 잡을 시간, 명령 없으면 됨)
+
+오른팔 큐브 돌림 4초간 이동
+[0.0, 0.55, 1.571, 1.9, 0.0, -0.2, 0.0]
+
+오른팔 2초 유지 (그리퍼 해제, 명령 없으면 됨)
+
+오른팔 빼는 곳 4초간 이동
+[0.0, 0.55, 1.571, 1.9, 0.0, 0.2, 0.2]
+
+오른팔 원점 이동 12초간 이동 
+[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
+ros2 action send_goal /right_joint_trajectory_controller/follow_joint_trajectory control_msgs/action/FollowJointTrajectory "{ 'trajectory': { 'joint_names': ['right_rev1', 'right_rev2', 'right_rev3', 'right_rev4', 'right_rev5', 'right_rev6', 'right_rev7'], 'points': [ { 'positions': [-0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 'time_from_start': { 'sec': 2, 'nanosec': 0 } } ] } }"

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openarm_camera"
+version = "0.0.0"
+description = "OpenArm Camera Node"
+license = {text = "TODO: License declaration"}
+maintainers = [{name = "mintlabskh", email = "mintlabskh@todo.todo"}]
+dependencies = ["setuptools"]
+
+[tool.setuptools]
+packages = ["openarm_camera"]
+zip-safe = true
+
+[tool.setuptools.data-files]
+"share/ament_index/resource_index/packages" = ["resource/openarm_camera"]
+"share/openarm_camera" = ["package.xml"]
+
+[project.scripts]
+camera_subscriber = "openarm_camera.camera_subscriber_node:main"

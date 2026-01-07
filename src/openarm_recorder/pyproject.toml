@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openarm_recorder"
+version = "0.0.0"
+description = "OpenArm Recorder Node for waypoint recording"
+license = {text = "TODO: License declaration"}
+maintainers = [{name = "mintlabskh", email = "mintlabskh@todo.todo"}]
+dependencies = ["setuptools"]
+
+[tool.setuptools]
+packages = ["openarm_recorder"]
+zip-safe = true
+
+[tool.setuptools.data-files]
+"share/ament_index/resource_index/packages" = ["resource/openarm_recorder"]
+"share/openarm_recorder" = ["package.xml"]
+"share/openarm_recorder/launch" = ["launch/record_waypoints.launch.py"]
+
+[project.scripts]
+recorder_node = "openarm_recorder.recorder_node:main"

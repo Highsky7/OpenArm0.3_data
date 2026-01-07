@@ -1,0 +1,77 @@
+digraph G {
+node [shape=box];
+"base_link" [label="base_link"];
+"left_dummy_link" [label="left_dummy_link"];
+"left_link1" [label="left_link1"];
+"left_link2" [label="left_link2"];
+"left_link3" [label="left_link3"];
+"left_link4" [label="left_link4"];
+"left_link5" [label="left_link5"];
+"left_link6" [label="left_link6"];
+"left_link7" [label="left_link7"];
+"left_link8" [label="left_link8"];
+"left_link_left_jaw" [label="left_link_left_jaw"];
+"left_link_right_jaw" [label="left_link_right_jaw"];
+"left_gripper_center" [label="left_gripper_center"];
+"right_dummy_link" [label="right_dummy_link"];
+"right_link1" [label="right_link1"];
+"right_link2" [label="right_link2"];
+"right_link3" [label="right_link3"];
+"right_link4" [label="right_link4"];
+"right_link5" [label="right_link5"];
+"right_link6" [label="right_link6"];
+"right_link7" [label="right_link7"];
+"right_link8" [label="right_link8"];
+"right_link_left_jaw" [label="right_link_left_jaw"];
+"right_link_right_jaw" [label="right_link_right_jaw"];
+"right_gripper_center" [label="right_gripper_center"];
+node [shape=ellipse, color=blue, fontcolor=blue];
+"base_link" -> "left_mount" [label="xyz: 0.3 0 0 \nrpy: 0 -0 0"]
+"left_mount" -> "left_dummy_link"
+"left_dummy_link" -> "left_dummy_joint" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"left_dummy_joint" -> "left_link1"
+"left_link1" -> "left_rev1" [label="xyz: 0 0 0.05325 \nrpy: 0 -0 0"]
+"left_rev1" -> "left_link2"
+"left_link2" -> "left_rev2" [label="xyz: 0 -0.02975 0.04475 \nrpy: 0 1.5708 1.5708"]
+"left_rev2" -> "left_link3"
+"left_link3" -> "left_rev3" [label="xyz: -0.0612477 -0.000536432 0.02975 \nrpy: -1.5708 1.11022e-16 -1.56204"]
+"left_rev3" -> "left_link4"
+"left_link4" -> "left_rev4" [label="xyz: 0.0297547 0 -0.24175 \nrpy: 0 -1.5708 -3.14444"]
+"left_rev4" -> "left_link5"
+"left_link5" -> "left_rev5" [label="xyz: -0.133937 0.00188408 -0.0297547 \nrpy: -1.5708 0.556933 -1.58486"]
+"left_rev5" -> "left_link6"
+"left_link6" -> "left_rev6" [label="xyz: -0.0187648 -0.0301352 -0.12105 \nrpy: -1.5708 -1.55673 -0.556933"]
+"left_rev6" -> "left_link7"
+"left_link7" -> "left_rev7" [label="xyz: -0.000217313 -0.0154485 0.0355 \nrpy: -1.5708 -0.00875905 -0.014066"]
+"left_rev7" -> "left_link8"
+"left_link8" -> "left_left_pris1" [label="xyz: -0.1071 0.0768568 0.0132053 \nrpy: 1.5708 -0.014066 0.00875905"]
+"left_left_pris1" -> "left_link_left_jaw"
+"left_link8" -> "left_right_pris2" [label="xyz: -0.10571 -0.0781373 0.0132053 \nrpy: 1.5708 -0.014066 0.00875905"]
+"left_right_pris2" -> "left_link_right_jaw"
+"left_link8" -> "left_virtual_gripper_center" [label="xyz: -0.13 0 0.0132053 \nrpy: -1.5708 5.55112e-17 1.5708"]
+"left_virtual_gripper_center" -> "left_gripper_center"
+"base_link" -> "right_mount" [label="xyz: -0.3 0 0 \nrpy: 0 -0 0"]
+"right_mount" -> "right_dummy_link"
+"right_dummy_link" -> "right_dummy_joint" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"right_dummy_joint" -> "right_link1"
+"right_link1" -> "right_rev1" [label="xyz: 0 0 0.05325 \nrpy: 0 -0 0"]
+"right_rev1" -> "right_link2"
+"right_link2" -> "right_rev2" [label="xyz: 0 -0.02975 0.04475 \nrpy: 0 1.5708 1.5708"]
+"right_rev2" -> "right_link3"
+"right_link3" -> "right_rev3" [label="xyz: -0.0612477 -0.000536432 0.02975 \nrpy: -1.5708 1.11022e-16 -1.56204"]
+"right_rev3" -> "right_link4"
+"right_link4" -> "right_rev4" [label="xyz: 0.0297547 0 -0.24175 \nrpy: 0 -1.5708 -3.14444"]
+"right_rev4" -> "right_link5"
+"right_link5" -> "right_rev5" [label="xyz: -0.133937 0.00188408 -0.0297547 \nrpy: -1.5708 0.556933 -1.58486"]
+"right_rev5" -> "right_link6"
+"right_link6" -> "right_rev6" [label="xyz: -0.0187648 -0.0301352 -0.12105 \nrpy: -1.5708 -1.55673 -0.556933"]
+"right_rev6" -> "right_link7"
+"right_link7" -> "right_rev7" [label="xyz: -0.000217313 -0.0154485 0.0355 \nrpy: -1.5708 -0.00875905 -0.014066"]
+"right_rev7" -> "right_link8"
+"right_link8" -> "right_left_pris1" [label="xyz: -0.1071 0.0768568 0.0132053 \nrpy: 1.5708 -0.014066 0.00875905"]
+"right_left_pris1" -> "right_link_left_jaw"
+"right_link8" -> "right_right_pris2" [label="xyz: -0.10571 -0.0781373 0.0132053 \nrpy: 1.5708 -0.014066 0.00875905"]
+"right_right_pris2" -> "right_link_right_jaw"
+"right_link8" -> "right_virtual_gripper_center" [label="xyz: -0.13 0 0.0132053 \nrpy: -1.5708 5.55112e-17 1.5708"]
+"right_virtual_gripper_center" -> "right_gripper_center"
+}

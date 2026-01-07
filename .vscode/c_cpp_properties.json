@@ -1,0 +1,39 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/highsky/openarm0.3_grav_comp/install/openarm_static_bimanual_hardware/include/**",
+        "/home/highsky/openarm0.3_grav_comp/install/openarm_hardware/include/**",
+        "/home/highsky/openarm_teleop_practice_ws/install/openarm_hardware/include/**",
+        "/home/highsky/DolbotX/install/usb_cam/include/**",
+        "/home/highsky/DolbotX/install/realsense2_camera/include/**",
+        "/home/highsky/DolbotX/install/realsense2_camera_msgs/include/**",
+        "/home/highsky/DolbotX/install/mtc_interfaces/include/**",
+        "/home/highsky/Mandol_ws/install/usb_cam/include/**",
+        "/home/highsky/Mandol_ws/install/ublox_gps/include/**",
+        "/home/highsky/Mandol_ws/install/ublox_msgs/include/**",
+        "/home/highsky/Mandol_ws/install/ublox_serialization/include/**",
+        "/home/highsky/Mandol_ws/install/rtcm_msgs/include/**",
+        "/home/highsky/Mandol_ws/install/path_planning/include/**",
+        "/home/highsky/Mandol_ws/install/gps_to_utm/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/highsky/openarm0.3_grav_comp/src/openarm_hardware/include/**",
+        "/home/highsky/openarm0.3_grav_comp/src/openarm_moveit_config/include/**",
+        "/home/highsky/openarm0.3_grav_comp/src/openarm_static_bimanual_bringup/include/**",
+        "/home/highsky/openarm0.3_grav_comp/src/openarm_static_bimanual_hardware/include/**",
+        "include/**",
+        "/usr/include/**"
+      ],
+      "name": "ros2",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++17"
+    }
+  ],
+  "version": 4
+}

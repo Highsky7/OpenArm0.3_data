@@ -1,0 +1,13 @@
+<?xml version="1.0" ?>
+<robot name="openarm">
+  <!-- A) world 고정 -->
+  <virtual_joint name="world_to_base" type="fixed" parent_frame="world" child_link="base_link"/>
+
+  <!-- B) 7-DOF 팔을 체인으로 지정 -->
+  <group name="arm">
+    <chain base_link="link1" tip_link="gripper_center"/>
+  </group>
+
+  <!-- (선택) EE 선언 -->
+  <!-- <end_effector name="ee" parent_link="gripper_center" group="arm"/> -->
+</robot>

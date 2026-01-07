@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openarm_arduino_bridge"
+version = "0.1.0"
+description = "Arduino bridge for OpenArm gripper control"
+license = {text = "MIT"}
+maintainers = [{name = "openarm", email = "openarm@example.com"}]
+dependencies = ["setuptools", "pyserial"]
+
+[tool.setuptools]
+packages = ["openarm_arduino_bridge"]
+zip-safe = true
+
+[tool.setuptools.data-files]
+"share/ament_index/resource_index/packages" = ["resource/openarm_arduino_bridge"]
+"share/openarm_arduino_bridge" = ["package.xml"]
+"share/openarm_arduino_bridge/launch" = ["launch/arduino_servo.launch.py", "launch/bimanual_arduino_servo.launch.py"]
+"share/openarm_arduino_bridge/config" = ["config/bridge.yaml"]
+
+[project.scripts]
+servo_bridge = "openarm_arduino_bridge.bridge_node:main"
+bimanual_servo_bridge = "openarm_arduino_bridge.bimanual_bridge_node:main"

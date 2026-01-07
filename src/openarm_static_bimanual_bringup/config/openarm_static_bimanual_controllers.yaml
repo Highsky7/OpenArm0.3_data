@@ -1,0 +1,113 @@
+# openarm_static_bimanual_controllers.yaml
+# - JSB 1개로 양팔 상태 퍼블리시
+# - 각 팔은 7DOF(rev1~rev7)만 컨트롤러에 등록
+# - gripper(prismatic)는 제외(servo_bridge가 /joint_states에 주입)
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    # ===== Left arm =====
+    left_forward_position_controller:
+      type: forward_command_controller/ForwardCommandController
+    left_forward_velocity_controller:
+      type: forward_command_controller/ForwardCommandController
+    left_joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    left_teleop_stream_controller:
+      type: position_controllers/JointGroupPositionController
+
+    # ===== Right arm =====
+    right_forward_position_controller:
+      type: forward_command_controller/ForwardCommandController
+    right_forward_velocity_controller:
+      type: forward_command_controller/ForwardCommandController
+    right_joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    right_teleop_stream_controller:
+      type: position_controllers/JointGroupPositionController
+
+    # ===== Effort Controllers (for gravity compensation) =====
+    left_effort_controller:
+      type: effort_controllers/JointGroupEffortController
+    right_effort_controller:
+      type: effort_controllers/JointGroupEffortController
+
+
+# ================= Left arm =================
+left_forward_position_controller:
+  ros__parameters:
+    joints: [left_rev1, left_rev2, left_rev3, left_rev4, left_rev5, left_rev6, left_rev7]
+    interface_name: position
+
+left_forward_velocity_controller:
+  ros__parameters:
+    joints: [left_rev1, left_rev2, left_rev3, left_rev4, left_rev5, left_rev6, left_rev7]
+    interface_name: velocity
+
+left_joint_trajectory_controller:
+  ros__parameters:
+    joints: [left_rev1, left_rev2, left_rev3, left_rev4, left_rev5, left_rev6, left_rev7]
+    command_interfaces: [position]
+    state_interfaces: [position]
+    state_publish_rate: 50.0
+    action_monitor_rate: 50.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.0001
+      goal_time: 0.5
+      goal_tolerance: 0.0005
+
+
+left_teleop_stream_controller:
+  ros__parameters:
+    joints: [left_rev1, left_rev2, left_rev3, left_rev4, left_rev5, left_rev6, left_rev7]
+    interface_name: "position"
+    command_interfaces: ["position"]
+    state_interfaces: ["position","velocity"]
+    allow_partial_joints_goal: false
+
+
+# ================= Right arm =================
+right_forward_position_controller:
+  ros__parameters:
+    joints: [right_rev1, right_rev2, right_rev3, right_rev4, right_rev5, right_rev6, right_rev7]
+    interface_name: position
+
+right_forward_velocity_controller:
+  ros__parameters:
+    joints: [right_rev1, right_rev2, right_rev3, right_rev4, right_rev5, right_rev6, right_rev7]
+    interface_name: velocity
+
+right_joint_trajectory_controller:
+  ros__parameters:
+    joints: [right_rev1, right_rev2, right_rev3, right_rev4, right_rev5, right_rev6, right_rev7]
+    command_interfaces: [position]
+    state_interfaces: [position]
+    state_publish_rate: 50.0
+    action_monitor_rate: 50.0
+    allow_partial_joints_goal: false
+    constraints:
+      stopped_velocity_tolerance: 0.0001
+      goal_time: 0.5
+      goal_tolerance: 0.0005
+
+right_teleop_stream_controller:
+  ros__parameters:
+    joints: [right_rev1, right_rev2, right_rev3, right_rev4, right_rev5, right_rev6, right_rev7]
+    interface_name: "position"
+    command_interfaces: ["position"]
+    state_interfaces: ["position","velocity"]
+    allow_partial_joints_goal: false
+
+# ================= Effort Controllers (Gravity Compensation) =================
+left_effort_controller:
+  ros__parameters:
+    joints: [left_rev1, left_rev2, left_rev3, left_rev4, left_rev5, left_rev6, left_rev7]
+
+right_effort_controller:
+  ros__parameters:
+    joints: [right_rev1, right_rev2, right_rev3, right_rev4, right_rev5, right_rev6, right_rev7]

@@ -1,0 +1,7 @@
+openarm_arduino_bridge:
+  ros__parameters:
+    baud: 9600
+    timeout_ms: 1000
+    angle_topic: servo_angle
+    state_topic: servo_state
+    cmd_topic: servo_cmd
