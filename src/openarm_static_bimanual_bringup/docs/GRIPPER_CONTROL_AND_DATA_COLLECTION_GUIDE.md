@@ -1,6 +1,6 @@
 # OpenArm 양팔 로봇 그리퍼 제어 및 데이터 수집 통합 가이드
 
-**최종 업데이트**: 2026-01-07
+**최종 업데이트**: 2026-01-08
 
 이 문서는 OpenArm 양팔 로봇의 그리퍼 키보드 제어, 트래젝토리 데이터 녹화, VLA 모델 학습용 데이터 수집 기능에 대한 총정리 가이드입니다.
 
@@ -93,7 +93,7 @@ cd ~/OpenArm0.3_data
 ### 2단계: 패키지 빌드
 
 ```bash
-colcon build --packages-select openarm_static_bimanual_bringup openarm_arduino_bridge --symlink-install
+colcon build --packages-select openarm_static_bimanual_bringup openarm_arduino_bridge openarm_static_bimanual_hardware --symlink-install
 ```
 
 ### 3단계: 환경 설정 (매 터미널마다 실행)
@@ -445,6 +445,47 @@ ros2 launch ... enable_gripper_bridge:=true servo_port:=/dev/ttyACM0
 1. Launch 실행 후 **최소 8초** 대기
 2. Arduino 연결 상태 확인: `ls /dev/ttyACM*`
 3. 브릿지 로그 확인: `ros2 topic echo /gripper_states`
+
+---
+
+### 로봇팔이 굳어버리거나 Ctrl+C 후 토크가 유지됨
+
+**원인 1 (Limit 도달)**: 관절이 소프트웨어 Limit에 도달하면 가상 스프링 토크가 발생합니다.
+
+**해결**: `limit_spring_k` 값을 낮추거나 (기본 5.0 → 3.0), Limit 범위를 확장하세요.
+
+**원인 2 (종료 처리)**: 이전 버전에서는 노드 종료 시 0 토크를 보내지 않았습니다.
+
+**해결**: 최신 버전에서는 `gravity_comp_node`가 종료 시 자동으로 0 토크를 발행합니다. 최신 코드로 업데이트하세요.
+
+---
+
+### CAN 버퍼 오버플로우 (모터 굳음/초록불)
+
+**증상**: 수동 조작 중 일부 모터가 갑자기 굳어버리고 초록 LED가 켜짐. 토픽 발행이 중단됨.
+
+**원인**: CAN 수신 버퍼가 가득 차서 새 패킷이 드롭되고 모터가 Fault 모드에 진입.
+
+**해결 (시스템 버퍼 확대)**:
+
+```bash
+# 일시 적용 (재부팅 시 초기화)
+sudo sysctl -w net.core.rmem_default=1048576
+sudo sysctl -w net.core.rmem_max=2097152
+
+# 적용 확인
+sysctl net.core.rmem_default
+```
+
+**해결 (영구 적용)**:
+
+```bash
+echo "net.core.rmem_default=1048576" | sudo tee -a /etc/sysctl.conf
+echo "net.core.rmem_max=2097152" | sudo tee -a /etc/sysctl.conf
+sudo sysctl -p
+```
+
+> **참고**: 하드웨어 패키지(`openarm_static_bimanual_hardware`)에는 이미 소켓 버퍼 512KB 설정과 recv 횟수 증가(25회) 최적화가 적용되어 있습니다. 반드시 빌드 후 사용하세요.
 
 ---
 
