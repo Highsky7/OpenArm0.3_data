@@ -56,7 +56,7 @@ class GravityCompNode(Node):
     SAFETY_MARGIN = 0.087  # ~5°
     
     # Virtual spring stiffness at joint limits (Nm/rad)
-    LIMIT_SPRING_K = 5.0
+    LIMIT_SPRING_K = 3.0
     
     # Link masses and COM positions from URDF (approximate values)
     # Format: (mass_kg, com_x, com_y, com_z)
@@ -317,8 +317,7 @@ class GravityCompNode(Node):
             distance = lower_safe - position
             torque = self.limit_spring_k * distance
             if position < lower:
-                self.get_logger().warn(f'Joint {joint_name} EXCEEDED lower limit! pos={math.degrees(position):.1f}°')
-                torque *= 2.0  # Double force when limit exceeded
+                self.get_logger().warn(f'Joint {joint_name} EXCEEDED lower limit! pos={math.degrees(position):.1f}°', throttle_duration_sec=1.0)
             return torque
         
         elif position > upper_safe:
@@ -326,8 +325,7 @@ class GravityCompNode(Node):
             distance = position - upper_safe
             torque = -self.limit_spring_k * distance
             if position > upper:
-                self.get_logger().warn(f'Joint {joint_name} EXCEEDED upper limit! pos={math.degrees(position):.1f}°')
-                torque *= 2.0  # Double force when limit exceeded
+                self.get_logger().warn(f'Joint {joint_name} EXCEEDED upper limit! pos={math.degrees(position):.1f}°', throttle_duration_sec=1.0)
             return torque
         
         return 0.0
@@ -389,6 +387,26 @@ class GravityCompNode(Node):
             right_cmd = Float64MultiArray()
             right_cmd.data = right_tau
             self.right_cmd_pub.publish(right_cmd)
+            
+    def send_zero_torque(self):
+        """Send zero torque command to all active joints for safety."""
+        zero_tau = [0.0] * 7
+        cmd = Float64MultiArray()
+        cmd.data = zero_tau
+        
+        self.get_logger().info('Sending ZERO torque command to release motors...')
+        
+        # Send multiple times to ensure delivery
+        for _ in range(3):
+            if self.active_arms in ('left', 'both') and self.left_cmd_pub:
+                self.left_cmd_pub.publish(cmd)
+            
+            if self.active_arms in ('right', 'both') and self.right_cmd_pub:
+                self.right_cmd_pub.publish(cmd)
+                
+    def destroy_node(self):
+        self.send_zero_torque()
+        super().destroy_node()
 
 
 def main(args=None):

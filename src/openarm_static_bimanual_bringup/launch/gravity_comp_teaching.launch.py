@@ -165,7 +165,7 @@ def generate_launch_description():
             'publish_rate': 100.0,
             'enable_limit_protection': True,
             'safety_margin': 0.087,  # ~5 degrees
-            'limit_spring_k': 5.0,
+            'limit_spring_k': 3.0,
             'active_arms': active_arms,
             # Per-joint gravity scale: [rev1, rev2, rev3, rev4, rev5, rev6, rev7]
             'gravity_scale_joints': [0.5, 2.7, 1.5, 2.0, 2.0, 2.5, 2.2],
