@@ -38,7 +38,7 @@ class KeyboardGripperController(Node):
         self.declare_parameter('gripper_speed', 1.0)  # Position change per second
         self.declare_parameter('publish_rate', 20.0)  # Hz
         self.declare_parameter('min_gripper', 0.0)
-        self.declare_parameter('max_gripper', 1.0)
+        self.declare_parameter('max_gripper', 0.8)
         self.declare_parameter('sync_timeout', 5.0)  # Seconds to wait for sync
         
         self.gripper_speed = self.get_parameter('gripper_speed').value
