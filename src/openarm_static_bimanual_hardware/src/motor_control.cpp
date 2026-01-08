@@ -39,8 +39,12 @@ bool MotorControl::addMotor(Motor& motor) {
 }
 
 void MotorControl::enable(Motor& motor) {
-  controlCmd(motor, 0xFC);
-  sleep(0.3);
+  // Try enabling multiple times to prevent packet loss during init
+  for (int i = 0; i < 5; ++i) {
+    controlCmd(motor, 0xFC);
+    usleep(5000);  // 5ms wait between retries
+  }
+  usleep(100000);  // 100ms wait after enabling (reduced from 0.3s)
 }
 
 void MotorControl::disable(Motor& motor) {
