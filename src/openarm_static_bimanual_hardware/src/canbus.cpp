@@ -16,8 +16,12 @@ CANBus::CANBus(const std::string& interface, int mode) : mode_(mode) {
     std::exit(EXIT_FAILURE);
   }
 
-  // 블로킹 유지 + 짧은 타임아웃(2ms) → 데이터 없으면 즉시 빠짐
-  ::timeval tv{0, 2000};  // 0.002s
+  // Increase socket receive buffer to 512KB to prevent overflow
+  int rcvbuf = 524288;  // 512KB
+  ::setsockopt(sock_, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
+
+  // Reduce timeout to 1ms for faster recv loop (was 2ms)
+  ::timeval tv{0, 1000};  // 0.001s
   ::setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   ::setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 

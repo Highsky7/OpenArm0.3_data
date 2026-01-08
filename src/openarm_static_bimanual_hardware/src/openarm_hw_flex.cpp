@@ -169,9 +169,9 @@ OpenArmHWFlex::on_deactivate(const rclcpp_lifecycle::State &) {
 
 hardware_interface::return_type
 OpenArmHWFlex::read(const rclcpp::Time &, const rclcpp::Duration &) {
-  // 공유 MotorControl을 통해 CAN 버스 패킷을 읽어옴
-  // 한쪽 팔의 read()가 호출될 때 양쪽 팔의 모든 상태가 업데이트됨
-  for (int i = 0; i < 15; ++i) {
+  // Drain CAN receive buffer more aggressively to prevent overflow
+  // 25 iterations: handles 14 motors + margin for error frames
+  for (int i = 0; i < 25; ++i) {
     global_motor_control_->recv();
   }
 
