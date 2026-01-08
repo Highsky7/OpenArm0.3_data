@@ -170,8 +170,8 @@ OpenArmHWFlex::on_deactivate(const rclcpp_lifecycle::State &) {
 hardware_interface::return_type
 OpenArmHWFlex::read(const rclcpp::Time &, const rclcpp::Duration &) {
   // Drain CAN receive buffer more aggressively to prevent overflow
-  // 25 iterations: handles 14 motors + margin for error frames
-  for (int i = 0; i < 25; ++i) {
+  // 50 iterations: handles 14 motors + generous margin for error frames/latency
+  for (int i = 0; i < 50; ++i) {
     global_motor_control_->recv();
   }
 
