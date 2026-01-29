@@ -103,7 +103,7 @@ cd ~/OpenArm0.3_data
 ### 2단계: 패키지 빌드
 
 ```bash
-colcon build --packages-select openarm_static_bimanual_bringup openarm_arduino_bridge openarm_static_bimanual_hardware --symlink-install
+colcon build --packages-select openarm_static_bimanual_bringup openarm_static_bimanual_hardware --symlink-install
 ```
 
 ### 3단계: 환경 설정 (매 터미널마다 실행)
@@ -127,34 +127,32 @@ source ~/OpenArm0.3_data/install/setup.bash
 ```
 [0초]   터미널 1: Launch 파일 실행
            ↓
-[3초]   effort_controller 스폰 완료
+[3초]   effort_controller + gripper_controller 스폰 완료
            ↓
 [5초]   gravity_comp_node 시작
            ↓
-[6초]   gripper_bridge_node 시작
+[6초]   터미널 2: keyboard_gripper_controller 실행
            ↓
-[8초]   터미널 2: keyboard_gripper_controller 실행
-           ↓
-[~13초] 그리퍼 상태 동기화 완료 (또는 5초 타임아웃)
-           ↓
-[준비완료] 키보드로 그리퍼 제어 가능!
+[준비완료] 키보드로 그리퍼 제어 가능! (ros2_control 통합)
 ```
 
 ---
 
 ### 📌 STEP 1: Launch 파일 실행 (터미널 1)
 
-#### 실제 하드웨어 + 그리퍼 브릿지
+#### 실제 하드웨어 (CAN 그리퍼 통합)
 
 ```bash
 # 터미널 1
 source ~/OpenArm0.3_data/install/setup.bash
 ros2 launch openarm_static_bimanual_bringup gravity_comp_teaching.launch.py \
-    enable_gripper_bridge:=true \
-    servo_port:=/dev/ttyACM0
+    use_mock_hardware:=false \
+    can_device:=can0 \
+    enable_recorder:=true \
+    active_arms:=both
 ```
 
-> ⏱️ **대기**: 이 명령 실행 후 **최소 8초** 대기 (gripper_bridge 초기화 완료까지)
+> ✅ **CAN 그리퍼 통합**: arm + gripper가 단일 CAN 버스로 완전 통합
 
 #### Mock 하드웨어 (시뮬레이션)
 
@@ -165,12 +163,11 @@ ros2 launch openarm_static_bimanual_bringup gravity_comp_teaching.launch.py \
 
 #### Launch 인자 설명
 
-| 인자                    | 기본값  | 설명                         |
+| 인자                | 기본값  | 설명                         |
 | ----------------------- | ------- | ---------------------------- |
 | `use_mock_hardware`     | `false` | Mock 하드웨어 사용 여부      |
+| `can_device`            | `can0`  | CAN 인터페이스 이름          |
 | `enable_recorder`       | `true`  | Recorder 노드 포함 여부      |
-| `enable_gripper_bridge` | `false` | Arduino 그리퍼 브릿지 활성화 |
-| `servo_port`            | `auto`  | Arduino 시리얼 포트          |
 | `active_arms`           | `both`  | 활성 팔 (left/right/both)    |
 
 ---
@@ -188,24 +185,13 @@ ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
 #### 시작 시 출력 메시지
 
 ```
-[INFO] === Keyboard Gripper Controller ===
-[INFO]   Waiting for gripper state sync from Arduino bridge...
+[INFO] === Keyboard Gripper Controller (ros2_control) ===
 [INFO]   'q' = Left open,  'w' = Left close
 [INFO]   'o' = Right open, 'p' = Right close
 [INFO]   ESC or Ctrl+C to quit
-```
-
-#### 동기화 완료 시 (약 1-5초 후)
-
-```
-[INFO] ✅ Synced with Arduino bridge: L=0.000, R=0.000
+[INFO] ✅ Synced with /joint_states: L=0.000, R=0.000 rad
 [INFO]   Ready for keyboard control!
 ```
-
-> 만약 5초 내 동기화 실패 시:
-> ```
-> [WARN] Sync timeout (5.0s). Using default position 0.0 (open)
-> ```
 
 #### 키보드 조작
 
@@ -264,28 +250,27 @@ ros2 run openarm_static_bimanual_bringup fmvla_data_record.py
 
 ### 1. keyboard_gripper_controller.py
 
-키보드 입력으로 양팔 그리퍼를 제어하는 노드입니다.
+키보드 입력으로 양팔 그리퍼를 제어하는 노드입니다. **ros2_control 통합**.
 
 **주요 기능:**
-- Arduino 브릿지와 **초기 위치 자동 동기화** (점프 현상 방지)
-- 동기화 타임아웃 시 기본값(0.0) 사용
+- `/joint_states`에서 현재 그리퍼 위치 읽기 (left_rev8, right_rev8)
+- ros2_control 커맨드 인터페이스로 위치 제어 (radian 단위)
 
 **발행 토픽:**
-- `/left_gripper_cmd` (std_msgs/Float64)
-- `/right_gripper_cmd` (std_msgs/Float64)
+- `/left_gripper_controller/commands` (std_msgs/Float64MultiArray)
+- `/right_gripper_controller/commands` (std_msgs/Float64MultiArray)
 
 **구독 토픽:**
-- `/gripper_states` (sensor_msgs/JointState) - 초기 동기화용
+- `/joint_states` (sensor_msgs/JointState) - 현재 그리퍼 위치 확인
 
 **파라미터:**
 
-| 파라미터       | 기본값 | 설명                    |
-| -------------- | ------ | ----------------------- |
-| `gripper_speed`| 0.5    | 초당 위치 변화량        |
-| `publish_rate` | 20.0   | 발행 주기 Hz            |
-| `min_gripper`  | 0.0    | 최소 그리퍼 위치 (열림) |
-| `max_gripper`  | 1.0    | 최대 그리퍼 위치 (닫힘) |
-| `sync_timeout` | 5.0    | 동기화 대기 시간 (초)   |
+| 파라미터       | 기본값 | 설명                      |
+| -------------- | ------ | ------------------------- |
+| `gripper_speed`| 0.2    | 초당 위치 변화량 (rad/s)  |
+| `publish_rate` | 20.0   | 발행 주기 Hz              |
+| `min_gripper`  | 0.0    | 최소 그리퍼 위치 (열림, rad) |
+| `max_gripper`  | 1.57   | 최대 그리퍼 위치 (닫힘, rad) |
 
 ---
 
@@ -312,8 +297,7 @@ Pinocchio 기반 중력보상을 수행하는 노드입니다.
 조인트 상태를 JSON 형식으로 녹화하는 노드입니다.
 
 **구독 토픽:**
-- `/joint_states` (sensor_msgs/JointState)
-- `/gripper_states` (sensor_msgs/JointState)
+- `/joint_states` (sensor_msgs/JointState) - arm + gripper 16 DOF 통합
 
 **파라미터:**
 - `record_rate`: 녹화 주기 Hz (기본: 50.0)
@@ -336,21 +320,19 @@ left_arm[7] + left_gripper[1] + right_arm[7] + right_gripper[1]
 ## 주요 토픽 구조
 
 ```
-/joint_states                     ← 14 DOF 양팔 조인트 상태
-/gripper_states                   ← 2 DOF 그리퍼 상태 (Arduino 브릿지)
-/left_gripper_cmd                 → 왼쪽 그리퍼 명령 (Float64: 0.0~1.0)
-/right_gripper_cmd                → 오른쪽 그리퍼 명령 (Float64: 0.0~1.0)
-/left_effort_controller/commands  → 왼팔 토크 명령
-/right_effort_controller/commands → 오른팔 토크 명령
+/joint_states                           ← 16 DOF 통합 (arm 7 + gripper 1 x 양팔)
+/left_gripper_controller/commands       → 왼쪽 그리퍼 명령 (Float64MultiArray, rad)
+/right_gripper_controller/commands      → 오른쪽 그리퍼 명령 (Float64MultiArray, rad)
+/left_effort_controller/commands        → 왼팔 토크 명령
+/right_effort_controller/commands       → 오른팔 토크 명령
 ```
 
-### 그리퍼 값 범위 매핑
+### 그리퍼 값 범위
 
-| 레이어                    | 값 범위   | 의미         |
-| ------------------------- | --------- | ------------ |
-| keyboard_controller       | 0.0 ~ 1.0 | 열림 ~ 닫힘  |
-| Arduino 브릿지 (시리얼)   | 0 ~ 60    | 정수 변환    |
-| 서보 PWM                  | 500 ~ 2500µs | 180° 범위 |
+| 레이어                    | 값 범위     | 의미         |
+| ------------------------- | ----------- | ------------ |
+| keyboard_controller       | 0.0 ~ 1.57  | 열림 ~ 닫힘 (rad) |
+| ros2_control command      | 0.0 ~ 1.57  | radian 단위  |
 
 ---
 
@@ -404,9 +386,9 @@ LeRobot Dataset v3.0 호환 형식:
 
 ### 그리퍼가 시작 시 갑자기 움직임 (점프 현상)
 
-**원인**: 이전 버전에서는 초기값이 0.5로 고정되어 있었습니다.
+**원인**: 초기 그리퍼 위치가 실제 CAN 모터 위치와 다름
 
-**해결**: 최신 버전에서는 `/gripper_states` 토픽을 구독하여 Arduino 브릿지의 현재 상태와 **자동 동기화**됩니다. 최신 코드로 업데이트하세요.
+**해결**: 최신 `keyboard_gripper_controller.py`는 `/joint_states`에서 **현재 위치를 읽어** 시작합니다. 최신 코드로 업데이트하세요.
 
 ---
 
@@ -416,45 +398,44 @@ LeRobot Dataset v3.0 호환 형식:
 
 ```bash
 cd ~/OpenArm0.3_data
-colcon build --packages-select openarm_static_bimanual_bringup openarm_arduino_bridge --symlink-install
+colcon build --packages-select openarm_static_bimanual_bringup openarm_static_bimanual_description --symlink-install
 source install/setup.bash
 ```
 
 ---
 
-### Arduino 브릿지 연결 실패
+### CAN 그리퍼 통신 연결 실패
+
+**CAN 인터페이스 확인**:
+
+```bash
+ip link show can0
+# 인터페이스가 UP 상태인지 확인
+```
+
+**CAN 통신 테스트**:
+
+```bash
+candump can0
+# 그리퍼 모터로부터 피드백 메시지 확인
+```
+
+**CAN ID 확인** (그리퍼):
+- 왼팔: Device ID `0x08`, Master ID `0x18`
+- 오른팔: Device ID `0x28`, Master ID `0x38`
+
+---
+
+### 그리퍼 컨트롤러가 토픽을 발행하지 않음
 
 **확인**:
 
 ```bash
-ls /dev/ttyACM*
-# 또는
-ls /dev/ttyUSB*
+ros2 control list_controllers
+# left_gripper_controller와 right_gripper_controller가 active 상태인지 확인
 ```
 
-**권한 문제 해결**:
-
-```bash
-sudo usermod -a -G dialout $USER
-# 로그아웃 후 재로그인 필요
-```
-
-**해결**: `servo_port` 파라미터에 올바른 포트 지정
-
-```bash
-ros2 launch ... enable_gripper_bridge:=true servo_port:=/dev/ttyACM0
-```
-
----
-
-### 그리퍼 동기화 타임아웃
-
-**원인**: keyboard_gripper_controller를 너무 일찍 실행했거나 Arduino 브릿지가 시작되지 않음
-
-**해결**:
-1. Launch 실행 후 **최소 8초** 대기
-2. Arduino 연결 상태 확인: `ls /dev/ttyACM*`
-3. 브릿지 로그 확인: `ros2 topic echo /gripper_states`
+**해결**: `gravity_comp_teaching.launch.py` 실행 후 5초 이상 대기 후 컨트롤러 상태 확인
 
 ---
 
@@ -550,4 +531,4 @@ source install/setup.bash
 - [OpenArm 공식 GitHub](https://github.com/openarm)
 - [LeRobot Dataset 형식](https://huggingface.co/docs/lerobot)
 - [ROS2 Humble 문서](https://docs.ros.org/en/humble/)
-- [DOMAN Servo Datasheet](https://domanrchobby.com)
+- [DM-J4310 CAN Motor Datasheet](https://dmmotor.com)

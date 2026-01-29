@@ -15,7 +15,7 @@ OpenArm v0.3 양팔 로봇팔에 **Pinocchio 기반 정밀 중력보상 모드**
 
 ### 🆕 CAN 모터 그리퍼 통합
 - **DM-J4310 CAN 모터**를 ros2_control에 완전 통합 (`left_rev8`, `right_rev8`)
-- 기존 Arduino 서보 시스템 제거 → 단일 CAN 버스로 통합 제어
+- 단일 CAN 버스로 arm + gripper 16 DOF 통합 제어
 - `/joint_states` 토픽에 arm + gripper **16 DOF** 통합 발행
 
 ---
@@ -30,7 +30,7 @@ OpenArm v0.3 양팔 로봇팔에 **Pinocchio 기반 정밀 중력보상 모드**
 | `urdf/openarm_sb_robot.xacro`                     | **rev8 revolute joint** 추가 (CAN 그리퍼) |
 | `config/openarm_static_bimanual_controllers.yaml` | `left/right_effort_controller`, **gripper_controller** 추가 |
 | `launch/sbopenarm.launch.py`                      | `use_grippers` arg 추가 및 xacro 전달                |
-| `launch/gravity_comp_teaching.launch.py`          | URDF 생성, Pinocchio 설정, **Arduino 의존성 제거** |
+| `launch/gravity_comp_teaching.launch.py`          | URDF 생성, Pinocchio 설정, 그리퍼 컨트롤러 포함 |
 | `scripts/keyboard_gripper_controller.py`          | **ros2_control 토픽으로 전환** (radian 단위) |
 | `scripts/continuous_recorder_node.py`             | `/joint_states` 단일 토픽으로 16 DOF 녹화 |
 
@@ -162,10 +162,8 @@ ros2 launch openarm_static_bimanual_bringup gravity_comp_teaching.launch.py \
 ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
 ```
 
-> ✅ **CAN 그리퍼 통합**: 
 > - 그리퍼가 `left_rev8`, `right_rev8` 조인트로 ros2_control에 등록됨
 > - `/joint_states` 토픽에 arm + gripper 데이터 통합 발행 (16 DOF)
-> - 종래 Arduino 브릿지 필요 없음
 
 ### Step 5: 데이터 녹화
 
@@ -248,11 +246,8 @@ ros2 param set /gravity_comp_node gravity_scale 0.5
 ### 토픽 모니터링
 
 ```bash
-# Arm 조인트 상태 확인
+# Arm + Gripper 조인트 상태 확인 (16 DOF 통합)
 ros2 topic echo /joint_states
-
-# Gripper 상태 확인 (Arduino 브릿지)
-ros2 topic echo /gripper_states
 
 # 중력보상 토크 확인
 ros2 topic echo /left_effort_controller/commands
@@ -290,7 +285,7 @@ ros2 param set /gravity_comp_node gravity_scale 0.8
 | **URDF file not found**         | xacro 실행 실패            | `/tmp/openarm_v03_bimanual.urdf` 파일 존재 확인            |
 | **Pinocchio import error**      | 잘못된 pinocchio 패키지    | `pip uninstall pinocchio && sudo apt install ros-humble-pinocchio` |
 | **NumPy 호환 오류**             | NumPy 2.x 설치됨           | `pip install "numpy<2"`                                    |
-| **Gripper 데이터 없음**         | Arduino 브릿지 미실행      | `ros2 launch openarm_arduino_bridge arduino_servo.launch.py` |
+| **Gripper 데이터 없음**         | ros2_control 초기화 대기   | Launch 후 5초 대기, `ros2 control list_controllers` 확인     |
 | **gravity_comp_node not found** | 스크립트 미설치            | `colcon build` 및 `chmod +x` 실행                        |
 
 ---
