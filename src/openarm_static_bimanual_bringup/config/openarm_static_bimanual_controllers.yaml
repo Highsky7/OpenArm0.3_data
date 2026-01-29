@@ -36,6 +36,12 @@ controller_manager:
     right_effort_controller:
       type: effort_controllers/JointGroupEffortController
 
+    # ===== Gripper Controllers (CAN Motors) =====
+    left_gripper_controller:
+      type: position_controllers/JointGroupPositionController
+    right_gripper_controller:
+      type: position_controllers/JointGroupPositionController
+
 
 # ================= Left arm =================
 left_forward_position_controller:
@@ -111,3 +117,20 @@ left_effort_controller:
 right_effort_controller:
   ros__parameters:
     joints: [right_rev1, right_rev2, right_rev3, right_rev4, right_rev5, right_rev6, right_rev7]
+
+# ================= Gripper Controllers (CAN Motors) =================
+left_gripper_controller:
+  ros__parameters:
+    joints: [left_rev8]
+    interface_name: "position"
+    command_interfaces: ["position"]
+    state_interfaces: ["position", "velocity"]
+    allow_partial_joints_goal: false
+
+right_gripper_controller:
+  ros__parameters:
+    joints: [right_rev8]
+    interface_name: "position"
+    command_interfaces: ["position"]
+    state_interfaces: ["position", "velocity"]
+    allow_partial_joints_goal: false

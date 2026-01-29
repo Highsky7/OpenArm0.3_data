@@ -67,17 +67,7 @@ def generate_launch_description():
             default_value='true',
             description='Enable gripper joints in URDF for recording'
         ),
-        # Arduino Gripper Bridge (run keyboard controller separately)
-        DeclareLaunchArgument(
-            'enable_gripper_bridge',
-            default_value='false',
-            description='Enable Arduino gripper bridge (run keyboard controller in separate terminal)'
-        ),
-        DeclareLaunchArgument(
-            'servo_port',
-            default_value='auto',
-            description='Arduino serial port for gripper bridge'
-        ),
+        # NOTE: Arduino gripper bridge removed - CAN motor grippers used instead
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
@@ -88,8 +78,6 @@ def generate_launch_description():
     save_dir = LaunchConfiguration('save_dir')
     active_arms = LaunchConfiguration('active_arms')
     use_grippers = LaunchConfiguration('use_grippers')
-    enable_gripper_bridge = LaunchConfiguration('enable_gripper_bridge')
-    servo_port = LaunchConfiguration('servo_port')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
@@ -141,6 +129,21 @@ def generate_launch_description():
         package='controller_manager',
         executable='spawner',
         arguments=['right_effort_controller', '-c', '/controller_manager'],
+        output='screen',
+    )
+    
+    # ===== Gripper controller spawners (CAN Motors) =====
+    left_gripper_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['left_gripper_controller', '-c', '/controller_manager'],
+        output='screen',
+    )
+    
+    right_gripper_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['right_gripper_controller', '-c', '/controller_manager'],
         output='screen',
     )
     
@@ -198,35 +201,25 @@ def generate_launch_description():
         ]
     )
     
-    # ===== Arduino Gripper Bridge (conditional) =====
-    # NOTE: Keyboard controller should be run separately via ros2 run
-    #       in a separate terminal for keyboard input to work
-    gripper_bridge_node = Node(
-        package='openarm_arduino_bridge',
-        executable='bimanual_servo_bridge',
-        name='gripper_bridge',
-        output='screen',
-        parameters=[{'port': servo_port, 'baud': 115200}],
-        condition=IfCondition(enable_gripper_bridge),
-    )
-    
-    delayed_gripper_nodes = TimerAction(
-        period=6.0,
-        actions=[gripper_bridge_node]
-    )
+    # ===== CAN Motor Gripper Notice =====
+    # Arduino servo bridge is no longer used.
+    # CAN motor grippers (left_rev8, right_rev8) are controlled via ros2_control.
+    # Use keyboard_gripper_controller.py to control grippers:
+    #   ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
     
     return LaunchDescription(
         declared_arguments + [
             urdf_gen_process,  # Generate URDF first
             base_launch,
-            # Spawn effort controllers after base launch is ready
+            # Spawn effort and gripper controllers after base launch is ready
             TimerAction(
                 period=3.0,
-                actions=[left_effort_spawner, right_effort_spawner]
+                actions=[
+                    left_effort_spawner, right_effort_spawner,
+                    left_gripper_spawner, right_gripper_spawner
+                ]
             ),
             delayed_nodes,
-            # Gripper bridge (run keyboard controller in separate terminal)
-            delayed_gripper_nodes,
         ]
     )
 
