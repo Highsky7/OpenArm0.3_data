@@ -103,6 +103,8 @@ def generate_launch_description():
     
     # ===== Include base bringup launch =====
     # This includes robot_state_publisher, controller_manager, etc.
+    # NOTE: Using 'fpc' mode (not 'teleop') so that position controllers stay INACTIVE
+    # This allows effort_controller to have exclusive control for gravity compensation
     base_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([pkg_share, 'launch', 'sbopenarm.launch.py'])
@@ -132,20 +134,8 @@ def generate_launch_description():
         output='screen',
     )
     
-    # ===== Gripper controller spawners (CAN Motors) =====
-    left_gripper_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['left_gripper_controller', '-c', '/controller_manager'],
-        output='screen',
-    )
-    
-    right_gripper_spawner = Node(
-        package='controller_manager',
-        executable='spawner',
-        arguments=['right_gripper_controller', '-c', '/controller_manager'],
-        output='screen',
-    )
+    # NOTE: Gripper controllers are already spawned by sbopenarm.launch.py
+    # Do NOT spawn them again here to avoid "Controller already loaded" error
     
     # ===== Gravity Compensation Node =====
     # Per-joint gravity scale tuning:
@@ -171,7 +161,8 @@ def generate_launch_description():
             'limit_spring_k': 3.0,
             'active_arms': active_arms,
             # Per-joint gravity scale: [rev1, rev2, rev3, rev4, rev5, rev6, rev7]
-            'gravity_scale_joints': [0.5, 2.7, 1.5, 2.0, 2.0, 2.5, 2.2],
+            # 'gravity_scale_joints': [0.5, 2.7, 1.5, 2.0, 2.0, 2.5, 2.2],
+            'gravity_scale_joints': [0.5, 2.0, 1.1, 1.0, 1.5, 1.85, 1.65],
         }],
     )
     
@@ -211,12 +202,12 @@ def generate_launch_description():
         declared_arguments + [
             urdf_gen_process,  # Generate URDF first
             base_launch,
-            # Spawn effort and gripper controllers after base launch is ready
+            # Spawn effort controllers after base launch is ready
+            # Note: gripper controllers are spawned by sbopenarm.launch.py
             TimerAction(
                 period=3.0,
                 actions=[
                     left_effort_spawner, right_effort_spawner,
-                    left_gripper_spawner, right_gripper_spawner
                 ]
             ),
             delayed_nodes,

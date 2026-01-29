@@ -254,6 +254,23 @@ def generate_launch_description():
         condition=IfCondition("false"),  # ← 파일 생길 때까지 절대 실행 안 함
     )
 
+    # ===== CAN Gripper Controllers (rev8) - 실제 하드웨어에서만 spawn =====
+    left_gripper_can_active = Node(
+        package="controller_manager", executable="spawner",
+        arguments=["left_gripper_controller", "-c", "/controller_manager"],
+        output="screen",
+        condition=IfCondition(PythonExpression([
+            "'", use_mock_hardware, "' == 'false'"
+        ])),
+    )
+    right_gripper_can_active = Node(
+        package="controller_manager", executable="spawner",
+        arguments=["right_gripper_controller", "-c", "/controller_manager"],
+        output="screen",
+        condition=IfCondition(PythonExpression([
+            "'", use_mock_hardware, "' == 'false'"
+        ])),
+    )
 
     gripper_left = Node(
         package="openarm_arduino_bridge", executable="servo_bridge",
@@ -310,6 +327,8 @@ def generate_launch_description():
                 left_teleop_active, right_teleop_active, left_teleop_inactive, right_teleop_inactive,
                 # teleop follower (조건식으로 필요한 때만 실행)
                 teleop_follower_node,
+                # CAN Gripper Controllers (rev8) - 실제 하드웨어에서만
+                left_gripper_can_active, right_gripper_can_active,
             ])],
         )
     )
