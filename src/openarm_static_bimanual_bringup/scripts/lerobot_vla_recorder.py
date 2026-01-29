@@ -3,13 +3,15 @@
 """
 LeRobot VLA Data Recorder for OpenArm Bimanual Robot
 
-Records bimanual robot joint states in LeRobot v3.0 parquet format
+Records bimanual robot joint states and camera images in LeRobot v3.0 format
 for VLA (Vision-Language-Action) model training.
 
 Features:
 - 16-DOF recording: left_rev1~8 + right_rev1~8 (including grippers)
+- 3 camera streams: top, wrist_left, wrist_right (256x256)
+- Language instruction for VLA training
 - Episode-based recording with keyboard controls
-- LeRobot compatible parquet output
+- LeRobot compatible parquet + video output
 
 Usage:
     ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py
@@ -19,6 +21,7 @@ Keyboard Controls:
     's' - Stop and save current episode
     'q' - Finalize dataset and quit
 """
+import json
 import os
 import select
 import sys
@@ -27,22 +30,25 @@ import time
 import tty
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 from typing import Optional
 
+import cv2
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 import rclpy
+from cv_bridge import CvBridge
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import Image, JointState
 
 
 class LeRobotVLARecorder(Node):
     """
     LeRobot VLA Data Recorder
     
-    Records joint states at a fixed frequency and saves them in
-    LeRobot v3.0 compatible parquet format.
+    Records joint states and camera images at a fixed frequency and saves them
+    in LeRobot v3.0 compatible format with parquet + video files.
     """
     
     # Joint ordering for dataset (16 DOF total)
@@ -54,6 +60,14 @@ class LeRobotVLARecorder(Node):
     ]
     NUM_JOINTS = 16
     
+    # Camera configuration
+    CAMERA_TOPICS = {
+        'observation.images.top': 'camera1/cam1/color/image_raw',
+        'observation.images.wrist_left': 'camera1/cam2/color/image_raw',
+        'observation.images.wrist_right': 'camera1/cam3/color/image_raw',
+    }
+    IMAGE_SIZE = (256, 256)  # Resize target
+    
     def __init__(self):
         super().__init__('lerobot_vla_recorder')
         
@@ -62,15 +76,20 @@ class LeRobotVLARecorder(Node):
         self.declare_parameter('dataset_name', 'openarm_bimanual')
         self.declare_parameter('save_dir', '~/lerobot_datasets')
         self.declare_parameter('robot_type', 'openarm_static_bimanual')
+        self.declare_parameter('task_description', 'bimanual manipulation task')
+        self.declare_parameter('enable_cameras', True)
         
         self.record_rate = self.get_parameter('record_rate').value
         self.dataset_name = self.get_parameter('dataset_name').value
         self.save_dir = os.path.expanduser(self.get_parameter('save_dir').value)
         self.robot_type = self.get_parameter('robot_type').value
+        self.task_description = self.get_parameter('task_description').value
+        self.enable_cameras = self.get_parameter('enable_cameras').value
         
         # Dataset path
         self.dataset_path = Path(self.save_dir) / self.dataset_name
         self.data_dir = self.dataset_path / 'data'
+        self.videos_dir = self.dataset_path / 'videos'
         
         # State
         self.is_recording = False
@@ -79,12 +98,36 @@ class LeRobotVLARecorder(Node):
         self.start_time: Optional[float] = None
         self.last_joint_state: Optional[JointState] = None
         
+        # Camera state
+        self.cv_bridge = CvBridge()
+        self.latest_images: dict[str, Optional[np.ndarray]] = {
+            key: None for key in self.CAMERA_TOPICS.keys()
+        }
+        self.image_lock = Lock()
+        
+        # Episode image buffers (for video encoding)
+        self.episode_images: dict[str, list[np.ndarray]] = {
+            key: [] for key in self.CAMERA_TOPICS.keys()
+        }
+        
         # All episodes data for final parquet
         self.all_frames: list[dict] = []
         
-        # Subscriber
+        # Subscriber: Joint states
         self.js_sub = self.create_subscription(
             JointState, '/joint_states', self.joint_state_callback, 10)
+        
+        # Subscribers: Cameras (if enabled)
+        if self.enable_cameras:
+            for key, topic in self.CAMERA_TOPICS.items():
+                self.create_subscription(
+                    Image
+                    ,
+                    topic,
+                    lambda msg, k=key: self.image_callback(msg, k),
+                    10
+                )
+                self.get_logger().info(f'Subscribed: {topic} -> {key}')
         
         # Recording timer
         self.record_timer = self.create_timer(
@@ -94,23 +137,40 @@ class LeRobotVLARecorder(Node):
     
     def _print_banner(self):
         """Print startup information."""
-        self.get_logger().info('=' * 50)
+        self.get_logger().info('=' * 55)
         self.get_logger().info('  LeRobot VLA Recorder for OpenArm Bimanual')
-        self.get_logger().info('=' * 50)
+        self.get_logger().info('=' * 55)
         self.get_logger().info(f'  Record rate: {self.record_rate} Hz')
         self.get_logger().info(f'  Dataset: {self.dataset_path}')
         self.get_logger().info(f'  Joints: {self.NUM_JOINTS} DOF')
+        self.get_logger().info(f'  Cameras: {"Enabled" if self.enable_cameras else "Disabled"}')
+        self.get_logger().info(f'  Image size: {self.IMAGE_SIZE[0]}x{self.IMAGE_SIZE[1]}')
+        self.get_logger().info(f'  Task: {self.task_description}')
         self.get_logger().info('')
         self.get_logger().info('  Keyboard Controls:')
         self.get_logger().info("    'r' - Start new episode")
         self.get_logger().info("    's' - Stop and save episode")
         self.get_logger().info("    'q' - Finalize and quit")
-        self.get_logger().info('=' * 50)
+        self.get_logger().info('=' * 55)
         self.get_logger().info('  Waiting for /joint_states...')
     
     def joint_state_callback(self, msg: JointState):
         """Store latest joint state."""
         self.last_joint_state = msg
+    
+    def image_callback(self, msg: Image, image_key: str):
+        """Store and resize latest camera image."""
+        try:
+            # Convert ROS Image to OpenCV
+            cv_image = self.cv_bridge.imgmsg_to_cv2(msg, 'rgb8')
+            
+            # Resize to target size (256x256)
+            resized = cv2.resize(cv_image, self.IMAGE_SIZE, interpolation=cv2.INTER_AREA)
+            
+            with self.image_lock:
+                self.latest_images[image_key] = resized
+        except Exception as e:
+            self.get_logger().warn(f'Image conversion error ({image_key}): {e}')
     
     def _get_joint_positions(self) -> Optional[np.ndarray]:
         """Extract joint positions in correct order."""
@@ -133,6 +193,12 @@ class LeRobotVLARecorder(Node):
         
         return np.array(positions, dtype=np.float32)
     
+    def _get_current_images(self) -> dict[str, Optional[np.ndarray]]:
+        """Get current images with thread safety."""
+        with self.image_lock:
+            return {k: v.copy() if v is not None else None 
+                    for k, v in self.latest_images.items()}
+    
     def record_callback(self):
         """Record current frame if recording is active."""
         if not self.is_recording or self.last_joint_state is None:
@@ -142,6 +208,15 @@ class LeRobotVLARecorder(Node):
         if positions is None:
             return
         
+        # Check camera availability if enabled
+        if self.enable_cameras:
+            current_images = self._get_current_images()
+            if any(img is None for img in current_images.values()):
+                # Skip frame if any camera is missing
+                return
+        else:
+            current_images = {}
+        
         timestamp = time.time() - self.start_time
         frame_index = len(self.episode_frames)
         
@@ -150,11 +225,16 @@ class LeRobotVLARecorder(Node):
             'frame_index': frame_index,
             'episode_index': self.episode_index,
             'observation.state': positions.copy(),
-            # Action will be filled with next frame's position (for VLA)
+            'language_instruction': self.task_description,
             '_positions': positions.copy(),  # Temporary for action computation
         }
         
         self.episode_frames.append(frame)
+        
+        # Store images for video encoding (if enabled)
+        if self.enable_cameras:
+            for key, img in current_images.items():
+                self.episode_images[key].append(img)
     
     def start_recording(self):
         """Start new episode recording."""
@@ -162,7 +242,15 @@ class LeRobotVLARecorder(Node):
             self.get_logger().warn('Cannot start: No joint_states received yet')
             return
         
+        if self.enable_cameras:
+            current_images = self._get_current_images()
+            missing = [k for k, v in current_images.items() if v is None]
+            if missing:
+                self.get_logger().warn(f'Cannot start: Missing cameras: {missing}')
+                return
+        
         self.episode_frames = []
+        self.episode_images = {key: [] for key in self.CAMERA_TOPICS.keys()}
         self.start_time = time.time()
         self.is_recording = True
         
@@ -175,6 +263,7 @@ class LeRobotVLARecorder(Node):
         if len(self.episode_frames) < 2:
             self.get_logger().warn('Episode too short (< 2 frames), discarding')
             self.episode_frames = []
+            self.episode_images = {key: [] for key in self.CAMERA_TOPICS.keys()}
             return
         
         # Compute actions (next frame's state as action)
@@ -190,6 +279,10 @@ class LeRobotVLARecorder(Node):
             del frame['_positions']
             self.all_frames.append(frame)
         
+        # Save episode videos (if cameras enabled)
+        if self.enable_cameras:
+            self._save_episode_videos()
+        
         duration = self.episode_frames[-1]['timestamp']
         num_frames = len(self.episode_frames)
         
@@ -198,6 +291,37 @@ class LeRobotVLARecorder(Node):
         
         self.episode_index += 1
         self.episode_frames = []
+        self.episode_images = {key: [] for key in self.CAMERA_TOPICS.keys()}
+    
+    def _save_episode_videos(self):
+        """Save episode images as MP4 videos."""
+        for image_key, images in self.episode_images.items():
+            if not images:
+                continue
+            
+            # Create video directory
+            video_dir = self.videos_dir / image_key
+            video_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Video path
+            video_path = video_dir / f'episode_{self.episode_index:06d}.mp4'
+            
+            # Write video using OpenCV
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            fps = int(self.record_rate)
+            h, w = self.IMAGE_SIZE[1], self.IMAGE_SIZE[0]
+            
+            writer = cv2.VideoWriter(str(video_path), fourcc, fps, (w, h))
+            
+            for img in images:
+                # Convert RGB to BGR for OpenCV
+                bgr_img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+                writer.write(bgr_img)
+            
+            writer.release()
+            
+            self.get_logger().debug(
+                f'  Video saved: {video_path} ({len(images)} frames)')
     
     def finalize_dataset(self):
         """Finalize and write parquet dataset."""
@@ -217,6 +341,7 @@ class LeRobotVLARecorder(Node):
         episode_indices = [f['episode_index'] for f in self.all_frames]
         observations = np.array([f['observation.state'] for f in self.all_frames])
         actions = np.array([f['action'] for f in self.all_frames])
+        language_instructions = [f['language_instruction'] for f in self.all_frames]
         
         # Create table with LeRobot v3.0 compatible schema
         table = pa.table({
@@ -225,6 +350,7 @@ class LeRobotVLARecorder(Node):
             'episode_index': pa.array(episode_indices, type=pa.int64()),
             'observation.state': [obs.tolist() for obs in observations],
             'action': [act.tolist() for act in actions],
+            'language_instruction': pa.array(language_instructions, type=pa.string()),
         })
         
         # Write parquet file
@@ -234,16 +360,45 @@ class LeRobotVLARecorder(Node):
         # Write metadata (info.json)
         self._write_info_json()
         
-        self.get_logger().info('=' * 50)
+        self.get_logger().info('=' * 55)
         self.get_logger().info('✅ Dataset finalized!')
         self.get_logger().info(f'   Path: {self.dataset_path}')
         self.get_logger().info(f'   Episodes: {self.episode_index}')
         self.get_logger().info(f'   Total frames: {len(self.all_frames)}')
-        self.get_logger().info('=' * 50)
+        if self.enable_cameras:
+            self.get_logger().info(f'   Videos: {self.videos_dir}')
+        self.get_logger().info('=' * 55)
     
     def _write_info_json(self):
         """Write LeRobot compatible info.json metadata."""
-        import json
+        features = {
+            'observation.state': {
+                'dtype': 'float32',
+                'shape': [self.NUM_JOINTS],
+                'names': self.JOINT_NAMES,
+            },
+            'action': {
+                'dtype': 'float32',
+                'shape': [self.NUM_JOINTS],
+                'names': self.JOINT_NAMES,
+            },
+            'language_instruction': {
+                'dtype': 'string',
+                'shape': [1],
+            },
+        }
+        
+        # Add camera features if enabled
+        if self.enable_cameras:
+            for key in self.CAMERA_TOPICS.keys():
+                features[key] = {
+                    'dtype': 'video',
+                    'shape': [self.IMAGE_SIZE[1], self.IMAGE_SIZE[0], 3],  # H, W, C
+                    'video_info': {
+                        'video.fps': int(self.record_rate),
+                        'video.codec': 'mp4v',
+                    },
+                }
         
         info = {
             'repo_id': f'local/{self.dataset_name}',
@@ -251,18 +406,7 @@ class LeRobotVLARecorder(Node):
             'fps': int(self.record_rate),
             'num_episodes': self.episode_index,
             'num_frames': len(self.all_frames),
-            'features': {
-                'observation.state': {
-                    'dtype': 'float32',
-                    'shape': [self.NUM_JOINTS],
-                    'names': self.JOINT_NAMES,
-                },
-                'action': {
-                    'dtype': 'float32',
-                    'shape': [self.NUM_JOINTS],
-                    'names': self.JOINT_NAMES,
-                },
-            },
+            'features': features,
             'created_at': datetime.now().isoformat(),
         }
         

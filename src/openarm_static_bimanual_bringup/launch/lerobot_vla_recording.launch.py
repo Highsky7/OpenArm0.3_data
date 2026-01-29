@@ -66,6 +66,16 @@ def generate_launch_description():
             default_value='~/lerobot_datasets',
             description='Directory to save LeRobot datasets'
         ),
+        DeclareLaunchArgument(
+            'task_description',
+            default_value='bimanual manipulation task',
+            description='Language instruction for VLA training'
+        ),
+        DeclareLaunchArgument(
+            'enable_cameras',
+            default_value='true',
+            description='Enable camera image recording'
+        ),
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
@@ -75,6 +85,8 @@ def generate_launch_description():
     record_rate = LaunchConfiguration('record_rate')
     dataset_name = LaunchConfiguration('dataset_name')
     save_dir = LaunchConfiguration('save_dir')
+    task_description = LaunchConfiguration('task_description')
+    enable_cameras = LaunchConfiguration('enable_cameras')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
@@ -158,6 +170,8 @@ def generate_launch_description():
             'dataset_name': dataset_name,
             'save_dir': save_dir,
             'robot_type': 'openarm_static_bimanual',
+            'task_description': task_description,
+            'enable_cameras': enable_cameras,
         }],
     )
     
