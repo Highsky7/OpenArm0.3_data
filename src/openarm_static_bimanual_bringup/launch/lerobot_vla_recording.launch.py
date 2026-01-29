@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Gravity Compensation Teaching Launch File
+LeRobot VLA Recording Launch File
 
-Launches the OpenArm bimanual robot in gravity compensation mode
-for manual teaching / joint recording.
+Launches gravity compensation mode with LeRobot VLA data recorder.
+Run keyboard_gripper_controller.py in a SEPARATE terminal for gripper control.
 
 Usage:
-    ros2 launch openarm_static_bimanual_bringup gravity_comp_teaching.launch.py
-    ros2 launch openarm_static_bimanual_bringup gravity_comp_teaching.launch.py use_mock_hardware:=true
+    [Terminal 1] ros2 launch openarm_static_bimanual_bringup lerobot_vla_recording.launch.py
+    [Terminal 2] ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
+
+Recording Controls (Terminal 1):
+    'r' - Start new episode
+    's' - Stop and save episode
+    'q' - Finalize dataset and quit
 """
 from launch import LaunchDescription
 from launch.actions import (
@@ -17,7 +22,6 @@ from launch.actions import (
     TimerAction,
     ExecuteProcess,
 )
-from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import FindExecutable, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -43,9 +47,9 @@ def generate_launch_description():
             description='Path to static URDF file for KDL'
         ),
         DeclareLaunchArgument(
-            'enable_recorder',
-            default_value='true',
-            description='Launch the recorder node'
+            'active_arms',
+            default_value='both',
+            description="Which arms to control: 'left', 'right', or 'both'"
         ),
         DeclareLaunchArgument(
             'record_rate',
@@ -53,46 +57,36 @@ def generate_launch_description():
             description='Recording rate in Hz'
         ),
         DeclareLaunchArgument(
+            'dataset_name',
+            default_value='openarm_bimanual',
+            description='Name of the dataset to create'
+        ),
+        DeclareLaunchArgument(
             'save_dir',
-            default_value='~/openarm_official_ws',
-            description='Directory to save recorded trajectories'
+            default_value='~/lerobot_datasets',
+            description='Directory to save LeRobot datasets'
         ),
-        DeclareLaunchArgument(
-            'active_arms',
-            default_value='both',
-            description="Which arms to control: 'left', 'right', or 'both'"
-        ),
-        DeclareLaunchArgument(
-            'use_grippers',
-            default_value='true',
-            description='Enable gripper joints in URDF for recording'
-        ),
-        # NOTE: Arduino gripper bridge removed - CAN motor grippers used instead
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
     can_device = LaunchConfiguration('can_device')
     urdf_path = LaunchConfiguration('urdf_path')
-    enable_recorder = LaunchConfiguration('enable_recorder')
-    record_rate = LaunchConfiguration('record_rate')
-    save_dir = LaunchConfiguration('save_dir')
     active_arms = LaunchConfiguration('active_arms')
-    use_grippers = LaunchConfiguration('use_grippers')
+    record_rate = LaunchConfiguration('record_rate')
+    dataset_name = LaunchConfiguration('dataset_name')
+    save_dir = LaunchConfiguration('save_dir')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
-
+    
     # ===== Generate URDF for Pinocchio =====
-    # We need a physical file for Pinocchio to load.
-    # Execute xacro and save to urdf_path.
-    # Note: Using shell=True with a single command string to avoid spacing issues
     urdf_gen_process = ExecuteProcess(
         cmd=[
             'bash', '-c',
             [
                 FindExecutable(name='xacro'), ' ',
                 PathJoinSubstitution([description_pkg_share, 'urdf', 'openarm_static_bimanual.urdf.xacro']), ' ',
-                'use_grippers:=', use_grippers, ' ',
+                'use_grippers:=true ',
                 'use_mock_hardware:=', use_mock_hardware, ' ',
                 'mount_half_x:=0.30 ',
                 '-o ', urdf_path
@@ -102,9 +96,6 @@ def generate_launch_description():
     )
     
     # ===== Include base bringup launch =====
-    # This includes robot_state_publisher, controller_manager, etc.
-    # NOTE: Using 'fpc' mode (not 'teleop') so that position controllers stay INACTIVE
-    # This allows effort_controller to have exclusive control for gravity compensation
     base_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([pkg_share, 'launch', 'sbopenarm.launch.py'])
@@ -112,10 +103,10 @@ def generate_launch_description():
         launch_arguments={
             'use_mock_hardware': use_mock_hardware,
             'can_device': can_device,
-            'disable_torque': 'false',  # Enable torque for gravity comp
-            'active_mode': 'teleop',  # Use teleop mode for position sync (Kp nullification)
+            'disable_torque': 'false',
+            'active_mode': 'teleop',
             'rviz': 'true',
-            'use_grippers': 'true',  # Enable gripper joints for recording
+            'use_grippers': 'true',
         }.items()
     )
     
@@ -134,16 +125,7 @@ def generate_launch_description():
         output='screen',
     )
     
-    # NOTE: Gripper controllers are already spawned by sbopenarm.launch.py
-    # Do NOT spawn them again here to avoid "Controller already loaded" error
-    
     # ===== Gravity Compensation Node =====
-    # Per-joint gravity scale tuning:
-    #   rev1~4 (DM4340, 9Nm rated): base scale 1.5
-    #   rev5~7 (DM4310, 3Nm rated): higher scale 2.5 to compensate for weaker motors
-    # Adjust these values based on actual robot behavior:
-    #   - If joint still sags: increase the scale
-    #   - If joint resists manual movement: decrease the scale
     gravity_comp_node = Node(
         package='openarm_static_bimanual_bringup',
         executable='gravity_comp_node.py',
@@ -157,60 +139,48 @@ def generate_launch_description():
             'right_tip_link': 'right_link8',
             'publish_rate': 100.0,
             'enable_limit_protection': True,
-            'safety_margin': 0.087,  # ~5 degrees
+            'safety_margin': 0.087,
             'limit_spring_k': 3.0,
             'active_arms': active_arms,
-            # Per-joint gravity scale: [rev1, rev2, rev3, rev4, rev5, rev6, rev7]
-            # 'gravity_scale_joints': [0.5, 2.7, 1.5, 2.0, 2.0, 2.5, 2.2],
-            'gravity_scale_joints': [0.5, 2.0, 1.1, 1.8, 1.5, 1.85, 1.65],
+            'gravity_scale_joints': [0.5, 2.0, 1.1, 1.0, 1.5, 1.85, 1.65],
         }],
     )
     
-    # ===== Continuous Recorder Node =====
-    recorder_node = Node(
+    # ===== LeRobot VLA Recorder Node =====
+    lerobot_recorder_node = Node(
         package='openarm_static_bimanual_bringup',
-        executable='continuous_recorder_node.py',
-        name='continuous_recorder',
+        executable='lerobot_vla_recorder.py',
+        name='lerobot_vla_recorder',
         output='screen',
+        prefix='xterm -e',  # Run in separate terminal for keyboard input
         parameters=[{
             'record_rate': record_rate,
+            'dataset_name': dataset_name,
             'save_dir': save_dir,
-            'file_format': 'json',
-            'enable_limit_warning': True,
+            'robot_type': 'openarm_static_bimanual',
         }],
-        condition=IfCondition(enable_recorder),
     )
     
     # ===== Delayed start for gravity comp and recorder =====
-    # Wait for effort controllers to be ready
-    # Note: teleop_stream_controller is already spawned by sbopenarm.launch.py (active_mode='teleop')
     delayed_nodes = TimerAction(
-        period=5.0,  # Wait 5 seconds after launch
+        period=5.0,
         actions=[
             gravity_comp_node,
-            recorder_node,
+            lerobot_recorder_node,
         ]
     )
     
-    # ===== CAN Motor Gripper Notice =====
-    # Arduino servo bridge is no longer used.
-    # CAN motor grippers (left_rev8, right_rev8) are controlled via ros2_control.
-    # Use keyboard_gripper_controller.py to control grippers:
-    #   ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
-    
     return LaunchDescription(
         declared_arguments + [
-            urdf_gen_process,  # Generate URDF first
+            urdf_gen_process,
             base_launch,
-            # Spawn effort controllers after base launch is ready
-            # Note: gripper controllers are spawned by sbopenarm.launch.py
             TimerAction(
                 period=3.0,
                 actions=[
-                    left_effort_spawner, right_effort_spawner,
+                    left_effort_spawner,
+                    right_effort_spawner,
                 ]
             ),
             delayed_nodes,
         ]
     )
-

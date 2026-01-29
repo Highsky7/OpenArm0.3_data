@@ -43,6 +43,8 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/scripts)
     scripts/keyboard_gripper_controller.py
     scripts/fmvla_data_record.py
     scripts/trajectory_replay_node.py
+    scripts/lerobot_vla_recorder.py
+    scripts/lerobot_vla_replay.py
     DESTINATION lib/${PROJECT_NAME}
   )
 endif()
