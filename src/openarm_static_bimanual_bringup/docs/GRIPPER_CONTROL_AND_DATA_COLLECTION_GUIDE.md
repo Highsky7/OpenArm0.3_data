@@ -36,25 +36,32 @@
 
 ## 하드웨어 구성
 
-### 그리퍼 서보모터
+### 그리퍼 모터 (CAN)
 
 | 항목           | 스펙                          |
 | -------------- | ----------------------------- |
-| **모델명**     | DOMAN DM-CLS400MD             |
-| **타입**       | 디지털 코어리스 서보          |
-| **회전 각도**  | 180° (PWM 500-2500µs)         |
-| **토크**       | 38.8 kg.cm @ 6V / 40.6 kg.cm @ 7.4V |
-| **속도**       | 0.15 sec/60° @ 6V             |
-| **인터페이스** | JR (25T 출력축)               |
+| **모델명**     | DM-J4310 CAN 모터             |
+| **타입**       | 브러시리스 DC 모터              |
+| **제어 범위**  | 0.0 ~ 1.57 rad (revolute)     |
+| **토크**       | 7 Nm @ 24V                    |
+| **통신**       | CAN 2.0B (MIT 제어 모드)       |
+| **게인**       | Kp=10.0, Kd=1.0               |
+
+### CAN ID 구성
+
+| 위치 | Device ID | Master ID | ros2_control 조인트 |
+|------|-----------|-----------|---------------------|
+| 왼팔 그리퍼 | 0x08 | 0x18 | left_rev8 |
+| 오른팔 그리퍼 | 0x28 | 0x38 | right_rev8 |
 
 ### 통신 구조
 
 ```
-Arduino (Serial 115200bps)
-    ↕ /dev/ttyACM0
-bimanual_bridge_node.py
-    ↕ ROS2 Topics
-keyboard_gripper_controller.py / gravity_comp_node.py
+CAN 버스 (can0)
+    ↕ OpenArmHWFlex
+ros2_control (joint_state_broadcaster)
+    ↕ /joint_states, /{left,right}_gripper_controller/commands
+keyboard_gripper_controller.py / continuous_recorder_node.py
 ```
 
 ---
@@ -67,17 +74,20 @@ keyboard_gripper_controller.py / gravity_comp_node.py
 │   ├── scripts/
 │   │   ├── gravity_comp_node.py            # 중력보상 노드 (관절별 스케일 지원)
 │   │   ├── continuous_recorder_node.py     # 트래젝토리 녹화 (JSON)
-│   │   ├── keyboard_gripper_controller.py  # 그리퍼 키보드 제어 (초기 동기화 지원)
+│   │   ├── keyboard_gripper_controller.py  # 그리퍼 키보드 제어 (ros2_control)
 │   │   ├── fmvla_data_record.py            # VLA 학습 데이터 녹화 (Parquet)
 │   │   └── trajectory_replay_node.py       # 트래젝토리 재생
 │   ├── launch/
 │   │   └── gravity_comp_teaching.launch.py # 메인 Launch 파일
+│   ├── config/
+│   │   └── openarm_static_bimanual_controllers.yaml  # 그리퍼 컨트롤러 포함
 │   └── docs/
 │       └── GRIPPER_CONTROL_AND_DATA_COLLECTION_GUIDE.md
 │
-└── openarm_arduino_bridge/
-    └── openarm_arduino_bridge/
-        └── bimanual_bridge_node.py         # Arduino 그리퍼 브릿지
+└── openarm_static_bimanual_description/
+    └── urdf/
+        ├── openarm_sb_robot.xacro         # rev8 그리퍼 조인트 정의
+        └── openarm_static_bimanual.urdf.xacro  # CAN ID 및 ros2_control 구성
 ```
 
 ---

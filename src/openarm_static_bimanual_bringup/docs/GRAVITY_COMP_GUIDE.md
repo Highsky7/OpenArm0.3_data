@@ -13,10 +13,10 @@ OpenArm v0.3 양팔 로봇팔에 **Pinocchio 기반 정밀 중력보상 모드**
 - URDF를 직접 파싱하여 조인트 간 커플링 및 회전축 변화를 완벽히 반영
 - 기존 단순 모델 대비 복잡한 자세에서도 정확한 토크 계산
 
-### 🆕 Gripper 데이터 녹화 지원
-- **실제 하드웨어**: Arduino 브릿지가 `/gripper_states` 토픽으로 발행
-- **Mock 하드웨어**: ros2_control에 gripper 조인트 등록 (`use_mock_hardware=true`일 때만)
-- `continuous_recorder_node.py`가 `/joint_states` + `/gripper_states` 모두 구독하여 녹화
+### 🆕 CAN 모터 그리퍼 통합
+- **DM-J4310 CAN 모터**를 ros2_control에 완전 통합 (`left_rev8`, `right_rev8`)
+- 기존 Arduino 서보 시스템 제거 → 단일 CAN 버스로 통합 제어
+- `/joint_states` 토픽에 arm + gripper **16 DOF** 통합 발행
 
 ---
 
@@ -26,11 +26,13 @@ OpenArm v0.3 양팔 로봇팔에 **Pinocchio 기반 정밀 중력보상 모드**
 
 | 파일                                                | 변경 내용                                            |
 | --------------------------------------------------- | ---------------------------------------------------- |
-| `urdf/openarm_static_bimanual.urdf.xacro`         | effort interface 추가, gripper는 mock에서만 ros2_control 등록 |
-| `config/openarm_static_bimanual_controllers.yaml` | `left/right_effort_controller` 추가                |
+| `urdf/openarm_static_bimanual.urdf.xacro`         | effort interface, **CAN 그리퍼 (rev8)** 추가 |
+| `urdf/openarm_sb_robot.xacro`                     | **rev8 revolute joint** 추가 (CAN 그리퍼) |
+| `config/openarm_static_bimanual_controllers.yaml` | `left/right_effort_controller`, **gripper_controller** 추가 |
 | `launch/sbopenarm.launch.py`                      | `use_grippers` arg 추가 및 xacro 전달                |
-| `launch/gravity_comp_teaching.launch.py`          | URDF 파일 생성(`xacro -o`), Pinocchio용 설정 추가   |
-| `scripts/continuous_recorder_node.py`             | `/gripper_states` 구독 추가, arm+gripper 데이터 합쳐 녹화 |
+| `launch/gravity_comp_teaching.launch.py`          | URDF 생성, Pinocchio 설정, **Arduino 의존성 제거** |
+| `scripts/keyboard_gripper_controller.py`          | **ros2_control 토픽으로 전환** (radian 단위) |
+| `scripts/continuous_recorder_node.py`             | `/joint_states` 단일 토픽으로 16 DOF 녹화 |
 
 ### 신규 생성 파일
 
@@ -144,7 +146,7 @@ ros2 control list_controllers
 
 ### Step 4: 중력보상 모드 실행 (실제 하드웨어)
 
-실제 하드웨어에서는 Arm(CAN 모터)과 Gripper(Arduino 서보)가 분리되어 있습니다.
+실제 하드웨어에서는 Arm(7 DOF)+ Gripper(1 DOF)가 단일 CAN 버스로 통합되어 있습니다.
 
 **터미널 1: 중력보상 노드 실행**
 ```bash
@@ -155,15 +157,15 @@ ros2 launch openarm_static_bimanual_bringup gravity_comp_teaching.launch.py \
     active_arms:=both
 ```
 
-**터미널 2: Arduino 브릿지 실행 (Gripper 데이터 발행)**
+**터미널 2: 키보드 그리퍼 컨트롤러 실행**
 ```bash
-ros2 launch openarm_arduino_bridge arduino_servo.launch.py port:=/dev/ttyACM2
+ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
 ```
 
-> ⚠️ **중요**: 
-> - 실제 하드웨어에서 gripper는 ros2_control에 등록되지 않습니다.
-> - Gripper 데이터 녹화를 위해 **Arduino 브릿지를 반드시 실행**해야 합니다.
-> - Arduino 브릿지는 `/gripper_states` 토픽으로 발행합니다.
+> ✅ **CAN 그리퍼 통합**: 
+> - 그리퍼가 `left_rev8`, `right_rev8` 조인트로 ros2_control에 등록됨
+> - `/joint_states` 토픽에 arm + gripper 데이터 통합 발행 (16 DOF)
+> - 종래 Arduino 브릿지 필요 없음
 
 ### Step 5: 데이터 녹화
 
@@ -217,15 +219,14 @@ ros2 param set /gravity_comp_node gravity_scale 0.5
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  OpenArmHWFlex + joint_state_broadcaster                   │
-│    └── /joint_states (left_rev1~7, right_rev1~7)           │
+│    └── /joint_states                                       │
+│        ├── left_rev1~7, left_rev8 (gripper)               │
+│        └── right_rev1~7, right_rev8 (gripper)              │
 └─────────────────────────────────────────────────────────────┘
                             ↓
                    continuous_recorder_node.py
-                            ↑
-┌─────────────────────────────────────────────────────────────┐
-│  Arduino 브릿지 (bimanual_bridge_node.py)                  │
-│    └── /gripper_states (left_gripper_joint, right_gripper_joint)
-└─────────────────────────────────────────────────────────────┘
+                            ↓
+                      16 DOF 데이터 녹화
 ```
 
 ### 녹화 데이터 형식
@@ -233,8 +234,8 @@ ros2 param set /gravity_comp_node gravity_scale 0.5
 ```json
 {
   "timestamp": 1.234,
-  "joint_names": ["left_rev1", ..., "left_rev7", "right_rev1", ..., "right_rev7", "left_gripper_joint", "right_gripper_joint"],
-  "positions": [...],
+  "joint_names": ["left_rev1", ..., "left_rev7", "left_rev8", "right_rev1", ..., "right_rev7", "right_rev8"],
+  "positions": [...],   // 16 DOF (7 arm + 1 gripper per arm)
   "velocities": [...],
   "efforts": [...]
 }
@@ -312,22 +313,31 @@ pin.rnea(model, data, q, np.zeros(model.nv), np.zeros(model.nv))
 tau_gravity = data.tau
 ```
 
-### Gripper ros2_control 등록 (Mock 전용)
+### CAN 그리퍼 하드웨어 구성
 
-`openarm_static_bimanual.urdf.xacro`에서 gripper 조인트는 **mock 하드웨어에서만** ros2_control에 등록됩니다:
+그리퍼는 DM-J4310 CAN 모터를 사용하며, URDF에 `rev8` 조인트로 정의되어 있습니다:
 
 ```xml
-<!-- Gripper joint (prismatic) - only for mock hardware -->
-<xacro:if value="${use_mock_hw_eff}">
-  <joint name="${left_prefix_eff}left_pris1">
-    <command_interface name="position"/>
-    <state_interface name="position"/>
-    <state_interface name="velocity"/>
-  </joint>
-</xacro:if>
+<!-- openarm_sb_robot.xacro -->
+<joint name="${prefix}rev8" type="revolute">
+  <parent link="${prefix}link8"/>
+  <child link="${prefix}link_gripper_motor"/>
+  <origin xyz="-0.0607602 0 0.00876618" rpy="0 0 0"/>
+  <axis xyz="0 0 1"/>
+  <limit effort="7.0" lower="0.0" upper="1.57" velocity="20.943946"/>
+</joint>
 ```
 
-실제 하드웨어에서는 `OpenArmHWFlex`가 7개 모터만 지원하므로, gripper는 Arduino 브릿지를 통해 별도로 제어/모니터링됩니다.
+**CAN ID 구성:**
+
+| 위치 | Device ID | Master ID | 조인트 이름 |
+|------|-----------|-----------|-------------|
+| 왼팔 그리퍼 | 0x08 | 0x18 | left_rev8 |
+| 오른팔 그리퍼 | 0x28 | 0x38 | right_rev8 |
+
+> ℹ️ **참고**: 
+> - `OpenArmHWFlex`가 URDF에서 CAN ID를 동적으로 파싱하여 8개 모터(7 arm + 1 gripper)를 관리합니다.
+> - 그리퍼 제어 단위는 **radian** (0.0 = open, 1.57 = close)
 
 ---
 
