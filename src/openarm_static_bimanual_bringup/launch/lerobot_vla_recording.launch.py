@@ -1,19 +1,37 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-LeRobot VLA Recording Launch File
+LeRobot VLA Recording Launch File (Multi-Terminal Version)
 
-Launches gravity compensation mode with LeRobot VLA data recorder.
-Run keyboard_gripper_controller.py in a SEPARATE terminal for gripper control.
+This launch file starts the base robot infrastructure only.
+Run gravity compensation, recorder, and gripper controller in SEPARATE terminals.
 
-Usage:
-    [Terminal 1] ros2 launch openarm_static_bimanual_bringup lerobot_vla_recording.launch.py
-    [Terminal 2] ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
+=============================================================================
+  실행 방법 (3개의 터미널 필요)
+=============================================================================
 
-Recording Controls (Terminal 1):
-    'r' - Start new episode
-    's' - Stop and save episode
-    'q' - Finalize dataset and quit
+[Terminal 1] 기본 인프라 + 중력 보상 (이 launch 파일)
+    ros2 launch openarm_static_bimanual_bringup lerobot_vla_recording.launch.py
+
+[Terminal 2] 키보드 그리퍼 제어
+    ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
+
+[Terminal 3] 데이터 녹화
+    ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py
+
+=============================================================================
+  녹화 조작 (Terminal 3에서)
+=============================================================================
+    'r' - 새 에피소드 시작
+    's' - 에피소드 저장 및 중지
+    'q' - 데이터셋 저장 및 종료
+
+=============================================================================
+  Launch 인자
+=============================================================================
+    use_mock_hardware:=true/false  - 시뮬레이션 모드
+    enable_cameras:=true/false     - 카메라 녹화 활성화
+    can_device:=can0               - CAN 디바이스 이름
 """
 from launch import LaunchDescription
 from launch.actions import (
@@ -21,6 +39,7 @@ from launch.actions import (
     IncludeLaunchDescription,
     TimerAction,
     ExecuteProcess,
+    LogInfo,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import FindExecutable, LaunchConfiguration, PathJoinSubstitution
@@ -138,6 +157,7 @@ def generate_launch_description():
     )
     
     # ===== Gravity Compensation Node =====
+    # 이 노드는 launch 파일에서 직접 실행됩니다 (Terminal 1)
     gravity_comp_node = Node(
         package='openarm_static_bimanual_bringup',
         executable='gravity_comp_node.py',
@@ -154,33 +174,29 @@ def generate_launch_description():
             'safety_margin': 0.087,
             'limit_spring_k': 3.0,
             'active_arms': active_arms,
-            'gravity_scale_joints': [0.5, 2.0, 1.1, 1.0, 1.5, 1.85, 1.65],
+            'gravity_scale_joints': [0.0, 2.5, 1.7, 1.7, 2.0, 2.0, 2.0],
         }],
     )
     
-    # ===== LeRobot VLA Recorder Node =====
-    lerobot_recorder_node = Node(
-        package='openarm_static_bimanual_bringup',
-        executable='lerobot_vla_recorder.py',
-        name='lerobot_vla_recorder',
-        output='screen',
-        prefix='xterm -e',  # Run in separate terminal for keyboard input
-        parameters=[{
-            'record_rate': record_rate,
-            'dataset_name': dataset_name,
-            'save_dir': save_dir,
-            'robot_type': 'openarm_static_bimanual',
-            'task_description': task_description,
-            'enable_cameras': enable_cameras,
-        }],
+    # ===== 안내 메시지 =====
+    info_message = LogInfo(
+        msg="\n" + "="*70 + "\n" +
+            "  ✅ 기본 인프라 + 중력 보상 노드가 실행되었습니다!\n" +
+            "="*70 + "\n" +
+            "  다음 터미널에서 아래 명령어를 실행하세요:\n\n" +
+            "  [Terminal 2] 키보드 그리퍼 제어:\n" +
+            "    ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py\n\n" +
+            "  [Terminal 3] 데이터 녹화:\n" +
+            "    ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py\n" +
+            "="*70
     )
     
-    # ===== Delayed start for gravity comp and recorder =====
+    # ===== Delayed start for gravity comp =====
     delayed_nodes = TimerAction(
         period=5.0,
         actions=[
             gravity_comp_node,
-            lerobot_recorder_node,
+            info_message,
         ]
     )
     

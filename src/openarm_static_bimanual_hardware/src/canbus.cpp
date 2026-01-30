@@ -2,7 +2,7 @@
 
 #include <cerrno>
 #include <cstring>
-#include <fcntl.h>     // (여기선 O_NONBLOCK 안 씀, 그래도 포함 OK)
+#include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -16,14 +16,13 @@ CANBus::CANBus(const std::string& interface, int mode) : mode_(mode) {
     std::exit(EXIT_FAILURE);
   }
 
+  // Set socket to NON-BLOCKING mode for fast recv without timeout delay
+  int flags = ::fcntl(sock_, F_GETFL, 0);
+  ::fcntl(sock_, F_SETFL, flags | O_NONBLOCK);
+
   // Increase socket receive buffer to 512KB to prevent overflow
   int rcvbuf = 524288;  // 512KB
   ::setsockopt(sock_, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf));
-
-  // Reduce timeout to 1ms for faster recv loop (was 2ms)
-  ::timeval tv{0, 1000};  // 0.001s
-  ::setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-  ::setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
   std::memset(&ifr, 0, sizeof(ifr));
   std::strncpy(ifr.ifr_name, interface.c_str(), IFNAMSIZ);

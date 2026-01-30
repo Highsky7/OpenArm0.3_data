@@ -63,18 +63,57 @@ ros2 launch openarm_static_bimanual_bringup gravity_comp_teaching.launch.py
 
 ## 3. VLA 데이터 녹화
 
-### 실행 (2개 터미널 필요)
+녹화를 위해 **4개의 터미널**이 필요합니다.
+
+### Terminal 1: 로봇 인프라 + 중력 보상
 
 ```bash
-# 터미널 1: 녹화 시스템
+source /opt/ros/humble/setup.bash
+source ~/OpenArm0.3_data/install/setup.bash
+
 ros2 launch openarm_static_bimanual_bringup lerobot_vla_recording.launch.py \
   task_description:="pick and place red cube"
+```
 
-# 터미널 2: 그리퍼 제어
+### Terminal 2: 그리퍼 컨트롤러 활성화 + 키보드 제어
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/OpenArm0.3_data/install/setup.bash
+
+# 1. 그리퍼 컨트롤러 활성화
+ros2 control switch_controllers \
+  --activate left_gripper_controller right_gripper_controller
+
+# 2. 키보드 그리퍼 제어 실행
 ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
 ```
 
-### 녹화 키보드 (터미널 1)
+### Terminal 3: 데이터 녹화
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/OpenArm0.3_data/install/setup.bash
+
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py
+```
+
+### Terminal 4: 카메라 (enable_cameras:=true 사용 시)
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/realsense_ws/install/setup.bash
+
+ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
+  camera_name1:=cam_1 camera_name2:=cam_2 camera_name3:=cam_3 \
+  camera_namespace1:=camera camera_namespace2:=camera camera_namespace3:=camera \
+  serial_no1:='_346222072155' serial_no2:='_247122072494' serial_no3:='_247122074423'
+```
+
+> [!NOTE]
+> 시리얼 번호는 `rs-enumerate-devices -s` 명령으로 확인할 수 있습니다.
+
+### 녹화 키보드 (Terminal 3)
 
 | 키 | 동작 |
 |:--:|------|
@@ -82,15 +121,27 @@ ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
 | `s` | 에피소드 저장 |
 | `q` | 데이터셋 저장 후 종료 |
 
+### 그리퍼 키보드 (Terminal 2)
+
+| 키 | 동작 |
+|:--:|------|
+| `q` | 왼쪽 그리퍼 열기 |
+| `w` | 왼쪽 그리퍼 닫기 |
+| `o` | 오른쪽 그리퍼 열기 |
+| `p` | 오른쪽 그리퍼 닫기 |
+| `ESC` | 종료 |
+
 ### 워크플로우
 
-1. 터미널 1에서 launch 실행 (task_description 설정)
-2. 터미널 2에서 그리퍼 컨트롤러 실행
-3. `r` 키로 녹화 시작
-4. 로봇 조작 + 그리퍼 제어
-5. `s` 키로 에피소드 저장
-6. 3~5 반복
-7. `q` 키로 완료
+1. **Terminal 4**: 카메라 런치 실행 (카메라 사용 시)
+2. **Terminal 1**: 로봇 인프라 + 중력 보상 launch 실행
+3. **Terminal 2**: 그리퍼 컨트롤러 활성화 → 키보드 제어 실행
+4. **Terminal 3**: 녹화기 실행
+5. **Terminal 3에서** `r` 키로 녹화 시작
+6. 로봇 조작 + **Terminal 2에서** 그리퍼 제어
+7. **Terminal 3에서** `s` 키로 에피소드 저장
+8. 5~7 반복
+9. **Terminal 3에서** `q` 키로 완료
 
 ### 파라미터
 
@@ -120,13 +171,11 @@ ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
 
 ---
 
-## 4. 키보드 그리퍼 제어
+## 4. 키보드 그리퍼 제어 (참고)
 
-### 실행
-
-```bash
-ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
-```
+> [!NOTE]
+> 그리퍼 제어는 **녹화 과정의 Terminal 2**에서 실행됩니다.
+> 자세한 내용은 [3. VLA 데이터 녹화](#3-vla-데이터-녹화) 섹션을 참고하세요.
 
 ### 키보드 조작
 
@@ -138,24 +187,62 @@ ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
 | `p` | 오른쪽 그리퍼 닫기 |
 | `ESC` | 종료 |
 
-> [!NOTE]
-> "Both grippers synced!" 메시지 확인 후 조작하세요.
-
 ---
 
 ## 5. 데이터 재생
 
-### 컨트롤러 전환 (필수)
+녹화된 데이터를 로봇에서 재생합니다. **3개의 터미널이 필요합니다.**
+
+### Terminal 1: 로봇 인프라 실행
 
 ```bash
-ros2 control switch_controllers \
-  --deactivate left_effort_controller right_effort_controller \
-  --activate left_joint_trajectory_controller right_joint_trajectory_controller
+source /opt/ros/humble/setup.bash
+source ~/OpenArm0.3_data/install/setup.bash
+
+ros2 launch openarm_static_bimanual_bringup sbopenarm.launch.py \
+  use_mock_hardware:=false \
+  disable_torque:=false \
+  active_mode:=fpc \
+  rviz:=true
 ```
 
-### 재생 실행
+> [!NOTE]
+> `active_mode:=fpc`를 사용하면 `forward_position_controller`가 기본 활성화됩니다.
+
+### Terminal 2: 컨트롤러 설정
 
 ```bash
+source /opt/ros/humble/setup.bash
+source ~/OpenArm0.3_data/install/setup.bash
+
+# 1. 현재 컨트롤러 상태 확인
+ros2 control list_controllers
+
+# 2. 그리퍼 컨트롤러 활성화
+ros2 control switch_controllers \
+  --activate left_gripper_controller right_gripper_controller
+
+# 3. 최종 상태 확인 (아래 상태여야 함)
+ros2 control list_controllers
+```
+
+**올바른 컨트롤러 상태:**
+
+| 컨트롤러 | 상태 |
+|----------|------|
+| `joint_state_broadcaster` | active |
+| `left_forward_position_controller` | active |
+| `right_forward_position_controller` | active |
+| `left_gripper_controller` | active |
+| `right_gripper_controller` | active |
+| 나머지 | inactive |
+
+### Terminal 3: 재생 실행
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/OpenArm0.3_data/install/setup.bash
+
 ros2 run openarm_static_bimanual_bringup lerobot_vla_replay.py \
   --ros-args -p dataset_path:=~/lerobot_datasets/openarm_bimanual \
   -p use_action:=true
@@ -184,6 +271,31 @@ ros2 run openarm_static_bimanual_bringup lerobot_vla_replay.py \
   -p use_action:=true
 ```
 
+### 문제 해결: 컨트롤러가 활성화되지 않을 때
+
+`forward_position_controller`가 inactive 상태라면:
+
+```bash
+# 1. 충돌하는 컨트롤러들 비활성화
+ros2 control switch_controllers \
+  --deactivate left_effort_controller \
+  --deactivate right_effort_controller \
+  --deactivate left_joint_trajectory_controller \
+  --deactivate right_joint_trajectory_controller \
+  --deactivate left_teleop_stream_controller \
+  --deactivate right_teleop_stream_controller
+
+# 2. forward_position_controller 활성화
+ros2 control switch_controllers \
+  --activate left_forward_position_controller \
+  --activate right_forward_position_controller
+
+# 3. gripper_controller 활성화
+ros2 control switch_controllers \
+  --activate left_gripper_controller \
+  --activate right_gripper_controller
+```
+
 ---
 
 ## 6. 문제 해결
@@ -207,7 +319,16 @@ ros2 topic list | grep camera1
 
 ### 재생 시 미반응
 
-**해결**: trajectory 컨트롤러 활성화 확인
+**해결**: `forward_position_controller`가 활성화되어 있는지 확인
+
 ```bash
 ros2 control list_controllers
+```
+
+`left_forward_position_controller`와 `right_forward_position_controller`가 `active` 상태여야 합니다.
+
+**launch 시 `active_mode:=fpc` 옵션 사용 권장:**
+```bash
+ros2 launch openarm_static_bimanual_bringup sbopenarm.launch.py \
+  use_mock_hardware:=false disable_torque:=false active_mode:=fpc rviz:=true
 ```

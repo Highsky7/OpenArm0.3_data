@@ -124,10 +124,15 @@ void MotorControl::sendData(uint16_t motor_id,
   canbus_.send(motor_id, data);
 }
 
-void MotorControl::recv() {
+bool MotorControl::recv() {
   uint16_t id;
   uint8_t len;
   std::array<uint8_t, 64> data = canbus_.recv(id, len);
+
+  // No data received (non-blocking socket returned empty)
+  if (len == 0) {
+    return false;
+  }
 
   if (canbus_.whichCAN() == CAN_MODE_CLASSIC) {
     can_frame frame{};
@@ -142,6 +147,7 @@ void MotorControl::recv() {
     std::memcpy(fd_frame.data, data.data(), len);
     processPacketFD(fd_frame);
   }
+  return true;
 }
 
 void MotorControl::control_delay(Motor& motor, double kp, double kd, double q,

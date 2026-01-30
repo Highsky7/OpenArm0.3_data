@@ -62,9 +62,9 @@ class LeRobotVLARecorder(Node):
     
     # Camera configuration
     CAMERA_TOPICS = {
-        'observation.images.top': 'camera1/cam1/color/image_raw',
-        'observation.images.wrist_left': 'camera1/cam2/color/image_raw',
-        'observation.images.wrist_right': 'camera1/cam3/color/image_raw',
+        'observation.images.top': '/camera/cam_1/color/image_raw',
+        'observation.images.wrist_left': '/camera/cam_2/color/image_raw',
+        'observation.images.wrist_right': '/camera/cam_3/color/image_raw',
     }
     IMAGE_SIZE = (256, 256)  # Resize target
     
@@ -72,7 +72,7 @@ class LeRobotVLARecorder(Node):
         super().__init__('lerobot_vla_recorder')
         
         # Parameters
-        self.declare_parameter('record_rate', 50.0)  # Hz
+        self.declare_parameter('record_rate', 15.0)  # Hz
         self.declare_parameter('dataset_name', 'openarm_bimanual')
         self.declare_parameter('save_dir', '~/lerobot_datasets')
         self.declare_parameter('robot_type', 'openarm_static_bimanual')
@@ -121,8 +121,7 @@ class LeRobotVLARecorder(Node):
         if self.enable_cameras:
             for key, topic in self.CAMERA_TOPICS.items():
                 self.create_subscription(
-                    Image
-                    ,
+                    Image,
                     topic,
                     lambda msg, k=key: self.image_callback(msg, k),
                     10

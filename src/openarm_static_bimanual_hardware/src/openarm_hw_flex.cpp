@@ -169,10 +169,13 @@ OpenArmHWFlex::on_deactivate(const rclcpp_lifecycle::State &) {
 
 hardware_interface::return_type
 OpenArmHWFlex::read(const rclcpp::Time &, const rclcpp::Duration &) {
-  // Drain CAN receive buffer more aggressively to prevent overflow
-  // 50 iterations: handles 14 motors + generous margin for error frames/latency
-  for (int i = 0; i < 50; ++i) {
-    global_motor_control_->recv();
+  // Non-blocking drain: read all available CAN frames without blocking
+  // With non-blocking socket, recv() returns immediately if no data
+  // Loop until no more data (max 100 iterations as safety limit)
+  for (int i = 0; i < 100; ++i) {
+    if (!global_motor_control_->recv()) {
+      break;  // No more data available, exit immediately
+    }
   }
 
   // 업데이트된 모터 상태를 자신의 상태 변수로 복사

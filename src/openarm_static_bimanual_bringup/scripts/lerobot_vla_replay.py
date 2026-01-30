@@ -8,7 +8,7 @@ Replays recorded trajectories from LeRobot parquet datasets.
 Features:
 - Load parquet datasets created by lerobot_vla_recorder.py
 - Episode selection and playback speed control
-- Publishes to joint trajectory controllers and gripper controllers
+- Publishes to forward_position_controller and gripper controllers
 
 Usage:
     ros2 run openarm_static_bimanual_bringup lerobot_vla_replay.py \\
@@ -19,6 +19,12 @@ Parameters:
     - episode_index: Episode to replay (-1 for all, default: 0)
     - playback_speed: Speed multiplier (default: 1.0)
     - loop: Loop playback (default: false)
+
+Required Controllers:
+    - left_forward_position_controller (active)
+    - right_forward_position_controller (active)
+    - left_gripper_controller (active)
+    - right_gripper_controller (active)
 """
 import os
 import time
@@ -30,8 +36,6 @@ import pyarrow.parquet as pq
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
-from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
-from builtin_interfaces.msg import Duration
 
 
 class LeRobotVLAReplay(Node):
@@ -78,15 +82,15 @@ class LeRobotVLAReplay(Node):
         
         self.dataset_path = Path(os.path.expanduser(dataset_path))
         
-        # Publishers
-        self.left_traj_pub = self.create_publisher(
-            JointTrajectory,
-            '/left_joint_trajectory_controller/joint_trajectory',
+        # Publishers - Use forward_position_controller for direct position commands
+        self.left_arm_pub = self.create_publisher(
+            Float64MultiArray,
+            '/left_forward_position_controller/commands',
             10
         )
-        self.right_traj_pub = self.create_publisher(
-            JointTrajectory,
-            '/right_joint_trajectory_controller/joint_trajectory',
+        self.right_arm_pub = self.create_publisher(
+            Float64MultiArray,
+            '/right_forward_position_controller/commands',
             10
         )
         self.left_gripper_pub = self.create_publisher(
@@ -169,11 +173,9 @@ class LeRobotVLAReplay(Node):
                 right_arm_pos = positions[8:15].tolist()
                 right_gripper_pos = float(positions[15])
                 
-                # Publish arm trajectories
-                self._publish_trajectory(
-                    self.left_traj_pub, self.LEFT_ARM_JOINTS, left_arm_pos)
-                self._publish_trajectory(
-                    self.right_traj_pub, self.RIGHT_ARM_JOINTS, right_arm_pos)
+                # Publish arm position commands (using forward_position_controller)
+                self._publish_arm_command(self.left_arm_pub, left_arm_pos)
+                self._publish_arm_command(self.right_arm_pub, right_arm_pos)
                 
                 # Publish gripper commands
                 self._publish_gripper(self.left_gripper_pub, left_gripper_pos)
@@ -187,16 +189,16 @@ class LeRobotVLAReplay(Node):
             else:
                 self.get_logger().info('🔄 Looping...')
     
-    def _publish_trajectory(self, publisher, joint_names: list, positions: list):
-        """Publish a trajectory point."""
-        msg = JointTrajectory()
-        msg.joint_names = joint_names
-        
-        point = JointTrajectoryPoint()
-        point.positions = positions
-        point.time_from_start = Duration(sec=0, nanosec=50_000_000)  # 50ms
-        
-        msg.points = [point]
+    def _publish_arm_command(self, publisher, positions: list):
+        """Publish arm position command using Float64MultiArray."""
+        msg = Float64MultiArray()
+        msg.data = positions
+        publisher.publish(msg)
+    
+    def _publish_gripper(self, publisher, position: float):
+        """Publish gripper command."""
+        msg = Float64MultiArray()
+        msg.data = [position]
         publisher.publish(msg)
     
     def _publish_gripper(self, publisher, position: float):

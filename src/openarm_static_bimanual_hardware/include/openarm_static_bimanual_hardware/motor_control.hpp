@@ -41,7 +41,7 @@ class MotorControl {
   void controlMIT2(Motor& motor, double kp, double kd, double q, double dq,
                    double tau);
   void sendData(uint16_t motor_id, const std::array<uint8_t, 8>& data);
-  void recv();
+  bool recv();  // Returns true if data was received, false otherwise
 
   void control_delay(Motor& motor, double kp, double kd, double q, double dq,
                      double tau, double delay);
