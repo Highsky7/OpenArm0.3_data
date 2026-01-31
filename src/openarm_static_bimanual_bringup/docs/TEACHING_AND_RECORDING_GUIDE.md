@@ -9,35 +9,36 @@
 1. [시스템 개요](#1-시스템-개요)
 2. [중력 보상 모드](#2-중력-보상-모드)
 3. [VLA 데이터 녹화](#3-vla-데이터-녹화)
-4. [키보드 그리퍼 제어](#4-키보드-그리퍼-제어)
-5. [데이터 재생](#5-데이터-재생)
-6. [문제 해결](#6-문제-해결)
+4. [녹화 명령어 레퍼런스](#4-녹화-명령어-레퍼런스)
+5. [키보드 그리퍼 제어](#5-키보드-그리퍼-제어)
+6. [데이터 재생](#6-데이터-재생)
+7. [문제 해결](#7-문제-해결)
 
 ---
 
 ## 1. 시스템 개요
 
-### 데이터셋 구성
+### 데이터셋 구성 (LeRobot v3.0)
 
 | Feature | Shape | 설명 |
 |---------|-------|------|
 | `observation.state` | (16,) | 16-DOF 조인트 위치 |
-| `action` | (16,) | 다음 프레임 조인트 위치 |
+| `action` | (16,) | 다음 프레임 조인트 위치 (Absolute) |
 | `observation.images.top` | (256, 256, 3) | 상단 카메라 |
 | `observation.images.wrist_left` | (256, 256, 3) | 왼쪽 손목 카메라 |
 | `observation.images.wrist_right` | (256, 256, 3) | 오른쪽 손목 카메라 |
-| `language_instruction` | string | 작업 설명 |
+| `task` | string | 작업 설명 (Multi-task 지원) |
 
 ### 카메라 토픽
 
 | 토픽 | Feature Key |
 |------|-------------|
-| `camera1/cam1/color/image_raw` | `observation.images.top` |
-| `camera1/cam2/color/image_raw` | `observation.images.wrist_left` |
-| `camera1/cam3/color/image_raw` | `observation.images.wrist_right` |
+| `/camera/cam_1/color/image_raw` | `observation.images.top` |
+| `/camera/cam_2/color/image_raw` | `observation.images.wrist_left` |
+| `/camera/cam_3/color/image_raw` | `observation.images.wrist_right` |
 
 > [!NOTE]
-> 이미지는 원본 640×480에서 **256×256**으로 리사이즈되어 저장됩니다.
+> 이미지는 원본에서 **256×256**으로 리사이즈되어 저장됩니다.
 
 ---
 
@@ -143,35 +144,161 @@ ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
 8. 5~7 반복
 9. **Terminal 3에서** `q` 키로 완료
 
-### 파라미터
+---
+
+## 4. 녹화 명령어 레퍼런스
+
+### 파라미터 목록
 
 | 파라미터 | 기본값 | 설명 |
 |----------|--------|------|
-| `record_rate` | `50.0` | 녹화 주파수 (Hz) |
+| `record_rate` | `15.0` | 녹화 주파수 (Hz) |
 | `dataset_name` | `openarm_bimanual` | 데이터셋 이름 |
 | `save_dir` | `~/lerobot_datasets` | 저장 경로 |
-| `task_description` | `bimanual manipulation task` | VLA 언어 지시 |
+| `robot_type` | `openarm_static_bimanual` | 로봇 타입 |
+| `task_description` | `bimanual manipulation task` | VLA 태스크 설명 |
 | `enable_cameras` | `true` | 카메라 녹화 활성화 |
+| `resume` | `true` | 기존 데이터셋에 이어서 녹화 |
 
-### 저장 구조
+---
 
+### 📌 기본 실행 (기존 데이터셋에 이어서 녹화)
+
+```bash
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py
 ```
-~/lerobot_datasets/openarm_bimanual/
-├── data/
-│   └── train-00000.parquet
-├── videos/
-│   ├── observation.images.top/
-│   │   └── episode_000000.mp4
-│   ├── observation.images.wrist_left/
-│   │   └── episode_000000.mp4
-│   └── observation.images.wrist_right/
-│       └── episode_000000.mp4
-└── info.json
+
+> [!TIP]
+> `resume:=true`가 기본값이므로 기존 `~/lerobot_datasets/openarm_bimanual`이 있으면 자동으로 이어서 녹화됩니다.
+
+---
+
+### 📌 새로운 데이터셋 처음부터 시작
+
+```bash
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py \
+  --ros-args \
+  -p dataset_name:=my_new_dataset \
+  -p resume:=false
 ```
 
 ---
 
-## 4. 키보드 그리퍼 제어 (참고)
+### 📌 특정 태스크로 녹화 (Multi-Task)
+
+```bash
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py \
+  --ros-args \
+  -p task_description:="pick up blue cube and place on red plate"
+```
+
+> [!IMPORTANT]
+> **Multi-Task 데이터셋**: 동일 데이터셋에 다른 `task_description`으로 여러 번 녹화하면,  
+> 각 에피소드에 해당 태스크가 저장됩니다.
+
+---
+
+### 📌 카메라 없이 조인트 데이터만 녹화
+
+```bash
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py \
+  --ros-args \
+  -p enable_cameras:=false
+```
+
+---
+
+### 📌 다른 저장 경로 사용
+
+```bash
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py \
+  --ros-args \
+  -p save_dir:=/data/robot_datasets \
+  -p dataset_name:=experiment_001
+```
+
+저장 경로: `/data/robot_datasets/experiment_001/`
+
+---
+
+### 📌 녹화 주파수 변경
+
+```bash
+# 20Hz로 녹화 (더 세밀한 움직임)
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py \
+  --ros-args \
+  -p record_rate:=20.0
+```
+
+```bash
+# 10Hz로 녹화 (파일 크기 절약)
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py \
+  --ros-args \
+  -p record_rate:=10.0
+```
+
+---
+
+### 📌 모든 옵션 한번에 지정
+
+```bash
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py \
+  --ros-args \
+  -p dataset_name:=bimanual_pick_place \
+  -p save_dir:=~/my_datasets \
+  -p record_rate:=20.0 \
+  -p task_description:="pick red cube and place in blue box" \
+  -p enable_cameras:=true \
+  -p resume:=true
+```
+
+---
+
+### 📌 One-liner 복사용 명령어 모음
+
+```bash
+# 기본 실행 (Resume 모드)
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py
+
+# 새 데이터셋 생성
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py --ros-args -p dataset_name:=new_dataset -p resume:=false
+
+# 태스크 지정
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py --ros-args -p task_description:="my task"
+
+# 카메라 없이
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py --ros-args -p enable_cameras:=false
+
+# 커스텀 경로
+ros2 run openarm_static_bimanual_bringup lerobot_vla_recorder.py --ros-args -p save_dir:=/custom/path -p dataset_name:=my_data
+```
+
+---
+
+### 저장 구조 (LeRobot v3.0)
+
+```
+~/lerobot_datasets/openarm_bimanual/
+├── meta/
+│   ├── info.json           # 데이터셋 메타정보
+│   ├── tasks.parquet       # 태스크 목록 (Multi-task)
+│   └── episodes.parquet    # 에피소드 정보
+├── data/
+│   └── chunk-000/
+│       └── episode_000000.parquet
+├── videos/
+│   └── chunk-000/
+│       ├── observation.images.top/
+│       │   └── episode_000000.mp4
+│       ├── observation.images.wrist_left/
+│       │   └── episode_000000.mp4
+│       └── observation.images.wrist_right/
+│           └── episode_000000.mp4
+```
+
+---
+
+## 5. 키보드 그리퍼 제어 (참고)
 
 > [!NOTE]
 > 그리퍼 제어는 **녹화 과정의 Terminal 2**에서 실행됩니다.
@@ -189,7 +316,7 @@ ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
 
 ---
 
-## 5. 데이터 재생
+## 6. 데이터 재생
 
 녹화된 데이터를 로봇에서 재생합니다. **3개의 터미널이 필요합니다.**
 
@@ -298,7 +425,30 @@ ros2 control switch_controllers \
 
 ---
 
-## 6. 문제 해결
+## 7. 문제 해결
+
+### LeRobot Import 오류
+
+**증상**: `ModuleNotFoundError: No module named 'lerobot'`
+
+**해결**:
+```bash
+pip install lerobot
+# 또는 로컬 설치
+cd ~/lerobot_FMVLA && pip install -e .
+```
+
+### numpy/pandas 호환성 오류
+
+**증상**:
+```
+ImportError: this version of pandas is incompatible with numpy < 1.22.4
+```
+
+**해결**:
+```bash
+pip install numpy>=1.22.4
+```
 
 ### rev4 조인트 오실레이션
 
@@ -314,7 +464,7 @@ ros2 control switch_controllers \
 
 **해결**: 카메라 토픽 확인
 ```bash
-ros2 topic list | grep camera1
+ros2 topic list | grep camera
 ```
 
 ### 재생 시 미반응
