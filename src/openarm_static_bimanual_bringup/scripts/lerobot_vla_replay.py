@@ -68,12 +68,14 @@ class LeRobotVLAReplay(Node):
         self.declare_parameter('playback_speed', 1.0)
         self.declare_parameter('loop', False)
         self.declare_parameter('use_action', False)  # Use action instead of observation
+        self.declare_parameter('use_gravity_comp', False)  # Use gravity compensation mode
         
         dataset_path = self.get_parameter('dataset_path').value
         self.episode_index = self.get_parameter('episode_index').value
         self.playback_speed = self.get_parameter('playback_speed').value
         self.loop = self.get_parameter('loop').value
         self.use_action = self.get_parameter('use_action').value
+        self.use_gravity_comp = self.get_parameter('use_gravity_comp').value
         
         if not dataset_path:
             self.get_logger().error('No dataset_path specified!')
@@ -103,6 +105,21 @@ class LeRobotVLAReplay(Node):
             '/right_gripper_controller/commands',
             10
         )
+        
+        # ===== Gravity Comp Mode Publishers =====
+        # When use_gravity_comp is True, publish to gravity_comp_node's external position topics
+        if self.use_gravity_comp:
+            self.left_gravity_comp_pub = self.create_publisher(
+                Float64MultiArray,
+                '/gravity_comp/left_external_position_cmd',
+                10
+            )
+            self.right_gravity_comp_pub = self.create_publisher(
+                Float64MultiArray,
+                '/gravity_comp/right_external_position_cmd',
+                10
+            )
+            self.get_logger().info('  [GRAVITY COMP MODE] Publishing to gravity_comp node')
         
         # Load and play
         self.load_and_play()
@@ -173,11 +190,17 @@ class LeRobotVLAReplay(Node):
                 right_arm_pos = positions[8:15].tolist()
                 right_gripper_pos = float(positions[15])
                 
-                # Publish arm position commands (using forward_position_controller)
-                self._publish_arm_command(self.left_arm_pub, left_arm_pos)
-                self._publish_arm_command(self.right_arm_pub, right_arm_pos)
+                # Publish arm position commands
+                if self.use_gravity_comp:
+                    # GRAVITY COMP MODE: Publish to gravity_comp_node's external position topics
+                    self._publish_arm_command(self.left_gravity_comp_pub, left_arm_pos)
+                    self._publish_arm_command(self.right_gravity_comp_pub, right_arm_pos)
+                else:
+                    # STANDARD MODE: Use forward_position_controller directly
+                    self._publish_arm_command(self.left_arm_pub, left_arm_pos)
+                    self._publish_arm_command(self.right_arm_pub, right_arm_pos)
                 
-                # Publish gripper commands
+                # Publish gripper commands (same for both modes)
                 self._publish_gripper(self.left_gripper_pub, left_gripper_pos)
                 self._publish_gripper(self.right_gripper_pub, right_gripper_pos)
                 
@@ -193,12 +216,6 @@ class LeRobotVLAReplay(Node):
         """Publish arm position command using Float64MultiArray."""
         msg = Float64MultiArray()
         msg.data = positions
-        publisher.publish(msg)
-    
-    def _publish_gripper(self, publisher, position: float):
-        """Publish gripper command."""
-        msg = Float64MultiArray()
-        msg.data = [position]
         publisher.publish(msg)
     
     def _publish_gripper(self, publisher, position: float):

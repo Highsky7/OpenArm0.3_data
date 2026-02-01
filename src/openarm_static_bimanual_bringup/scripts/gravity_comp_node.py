@@ -113,6 +113,14 @@ class GravityCompNode(Node):
         self.declare_parameter('active_arms', 'both')
         self.declare_parameter('urdf_path', '/tmp/openarm_v03_bimanual.urdf')
         
+        # ===== Replay Mode Parameters =====
+        # When enabled, accepts external position commands instead of using current position
+        self.declare_parameter('enable_replay_mode', False)
+        # Maximum position change per control cycle (rad) - approx 3 degrees
+        self.declare_parameter('max_position_step_rad', 0.05)
+        # Timeout for external commands before reverting to teaching mode (seconds)
+        self.declare_parameter('external_cmd_timeout', 1.0)
+        
         self.publish_rate = self.get_parameter('publish_rate').value
         self.enable_limit_protection = self.get_parameter('enable_limit_protection').value
         self.safety_margin = self.get_parameter('safety_margin').value
@@ -177,6 +185,20 @@ class GravityCompNode(Node):
         self.last_joint_state = None
         self.is_enabled = True
         
+        # ===== Replay Mode State =====
+        self.enable_replay_mode = self.get_parameter('enable_replay_mode').value
+        self.max_position_step_rad = self.get_parameter('max_position_step_rad').value
+        self.external_cmd_timeout = self.get_parameter('external_cmd_timeout').value
+        
+        # External position command state (for replay mode)
+        self.external_left_pos = None
+        self.external_right_pos = None
+        self.last_external_cmd_time = None
+        
+        # Interpolated position commands (for smooth transitions)
+        self.interpolated_left_pos = None
+        self.interpolated_right_pos = None
+        
         # ===== Subscribers & Publishers =====
         self.js_sub = self.create_subscription(
             JointState, '/joint_states', self.joint_state_cb, 10)
@@ -193,6 +215,16 @@ class GravityCompNode(Node):
         self.right_pos_pub = self.create_publisher(
             Float64MultiArray, '/right_teleop_stream_controller/commands', 10)
         
+        # ===== External Position Command Subscribers (for Replay Mode) =====
+        if self.enable_replay_mode:
+            self.external_left_pos_sub = self.create_subscription(
+                Float64MultiArray, '/gravity_comp/left_external_position_cmd',
+                self.external_left_pos_cb, 10)
+            self.external_right_pos_sub = self.create_subscription(
+                Float64MultiArray, '/gravity_comp/right_external_position_cmd',
+                self.external_right_pos_cb, 10)
+            self.get_logger().info('  [REPLAY MODE ENABLED] - Accepting external position commands')
+        
         # Timer for control loop
         rate = self.get_parameter('publish_rate').value
         self.timer = self.create_timer(1.0 / rate, self.control_loop)
@@ -208,6 +240,55 @@ class GravityCompNode(Node):
     def joint_state_cb(self, msg: JointState):
         """Store latest joint state."""
         self.last_joint_state = msg
+    
+    def external_left_pos_cb(self, msg: Float64MultiArray):
+        """Callback for external left arm position commands (replay mode)."""
+        if len(msg.data) == 7:
+            self.external_left_pos = list(msg.data)
+            self.last_external_cmd_time = self.get_clock().now()
+    
+    def external_right_pos_cb(self, msg: Float64MultiArray):
+        """Callback for external right arm position commands (replay mode)."""
+        if len(msg.data) == 7:
+            self.external_right_pos = list(msg.data)
+            self.last_external_cmd_time = self.get_clock().now()
+    
+    def rate_limit_position(self, target_pos: list, current_pos: list) -> list:
+        """
+        Apply rate limiting to position commands for smooth motion.
+        Limits the maximum change per control cycle to prevent sudden jumps.
+        
+        Args:
+            target_pos: Desired position from external command
+            current_pos: Current joint positions
+            
+        Returns:
+            Rate-limited position command
+        """
+        if target_pos is None or current_pos is None:
+            return current_pos
+        
+        result = []
+        for i in range(len(current_pos)):
+            delta = target_pos[i] - current_pos[i]
+            # Clamp delta to max step size
+            clamped_delta = max(-self.max_position_step_rad, 
+                               min(self.max_position_step_rad, delta))
+            result.append(current_pos[i] + clamped_delta)
+        return result
+    
+    def check_external_cmd_timeout(self) -> bool:
+        """
+        Check if external commands have timed out.
+        
+        Returns:
+            True if commands are valid (not timed out), False otherwise
+        """
+        if self.last_external_cmd_time is None:
+            return False
+        
+        elapsed = (self.get_clock().now() - self.last_external_cmd_time).nanoseconds / 1e9
+        return elapsed < self.external_cmd_timeout
     
     def get_positions(self, joint_names: list) -> list:
         """Extract positions for specific joints from JointState message."""
@@ -344,6 +425,9 @@ class GravityCompNode(Node):
         if self.active_arms in ('right', 'both'):
             right_pos = self.get_positions(self.right_joints)
         
+        # Check if external commands are still valid (not timed out)
+        use_external_cmd = self.enable_replay_mode and self.check_external_cmd_timeout()
+        
         # Compute and publish for left arm
         if left_pos is not None:
             left_tau = self.compute_gravity_torque_pinocchio(left_pos, 'left')
@@ -357,9 +441,20 @@ class GravityCompNode(Node):
                 max_tau = self.MAX_TORQUE[i]
                 left_tau[i] = max(-max_tau, min(max_tau, left_tau[i]))
             
+            # Determine position command based on mode
+            if use_external_cmd and self.external_left_pos is not None:
+                # REPLAY MODE: Use rate-limited external position command
+                left_pos_to_publish = self.rate_limit_position(
+                    self.external_left_pos, left_pos)
+                # Update interpolated position for next cycle
+                self.interpolated_left_pos = left_pos_to_publish
+            else:
+                # TEACHING MODE: Use current position (ensures Kp*(q_des - q) = 0)
+                left_pos_to_publish = left_pos
+            
             # Publish position and effort commands
             left_pos_cmd = Float64MultiArray()
-            left_pos_cmd.data = left_pos
+            left_pos_cmd.data = left_pos_to_publish
             self.left_pos_pub.publish(left_pos_cmd)
             
             left_cmd = Float64MultiArray()
@@ -379,9 +474,20 @@ class GravityCompNode(Node):
                 max_tau = self.MAX_TORQUE[i]
                 right_tau[i] = max(-max_tau, min(max_tau, right_tau[i]))
             
+            # Determine position command based on mode
+            if use_external_cmd and self.external_right_pos is not None:
+                # REPLAY MODE: Use rate-limited external position command
+                right_pos_to_publish = self.rate_limit_position(
+                    self.external_right_pos, right_pos)
+                # Update interpolated position for next cycle
+                self.interpolated_right_pos = right_pos_to_publish
+            else:
+                # TEACHING MODE: Use current position (ensures Kp*(q_des - q) = 0)
+                right_pos_to_publish = right_pos
+            
             # Publish position and effort commands
             right_pos_cmd = Float64MultiArray()
-            right_pos_cmd.data = right_pos
+            right_pos_cmd.data = right_pos_to_publish
             self.right_pos_pub.publish(right_pos_cmd)
             
             right_cmd = Float64MultiArray()
