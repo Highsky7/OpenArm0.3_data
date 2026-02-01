@@ -101,6 +101,11 @@ def generate_launch_description():
             default_value='bimanual manipulation task',
             description='Language instruction for VLA training'
         ),
+        DeclareLaunchArgument(
+            'resume',
+            default_value='true',
+            description='Resume (append) to existing VLA dataset if true'
+        ),
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
@@ -113,6 +118,7 @@ def generate_launch_description():
     playback_speed = LaunchConfiguration('playback_speed')
     record_rate = LaunchConfiguration('record_rate')
     task_description = LaunchConfiguration('task_description')
+    resume = LaunchConfiguration('resume')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
@@ -199,6 +205,7 @@ def generate_launch_description():
             'playback_speed': playback_speed,
             'record_rate': record_rate,
             'task_description': task_description,
+            'resume': resume,
         }],
     )
     
