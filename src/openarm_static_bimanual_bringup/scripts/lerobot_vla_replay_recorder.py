@@ -30,7 +30,7 @@ from typing import Optional
 
 import cv2
 import numpy as np
-import pyarrow.parquet as pq
+import pandas as pd
 import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
@@ -283,16 +283,20 @@ class LeRobotVLAReplayRecorder(Node):
     
     def replay_and_record(self):
         """Main replay and record loop."""
-        # Load trajectory dataset
+        # Load trajectory dataset (supports multi-chunk LeRobot v3.0 format)
         data_dir = self.trajectory_path / 'data'
-        parquet_files = list(data_dir.glob('*.parquet'))
+        parquet_files = sorted(data_dir.glob('**/*.parquet'))
         
         if not parquet_files:
             self.get_logger().error(f'No parquet files in {data_dir}')
             return
         
-        table = pq.read_table(parquet_files[0])
-        df = table.to_pandas()
+        # Load and concatenate all parquet files for multi-chunk support
+        dataframes = [pd.read_parquet(f) for f in parquet_files]
+        df = pd.concat(dataframes, ignore_index=True)
+        df = df.sort_values(['episode_index', 'frame_index']).reset_index(drop=True)
+        
+        self.get_logger().info(f'Loaded {len(parquet_files)} parquet file(s), {len(df)} total frames')
         
         # Get episodes to process
         if self.episode_index >= 0:
