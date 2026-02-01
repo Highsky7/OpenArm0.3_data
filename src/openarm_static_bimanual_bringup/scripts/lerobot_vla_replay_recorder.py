@@ -253,7 +253,8 @@ class LeRobotVLAReplayRecorder(Node):
     def _publish_arm_command(self, publisher, positions):
         """Publish arm position command."""
         msg = Float64MultiArray()
-        msg.data = list(positions)
+        # Explicitly convert to Python float to avoid numpy dtype issues
+        msg.data = [float(p) for p in positions]
         publisher.publish(msg)
     
     def _publish_gripper_command(self, publisher, position):
