@@ -161,7 +161,7 @@ source ~/OpenArm0.3_data/install/setup.bash
 # 예시: 'pick_red_cube' 데이터셋에 저장/이어쓰기
 ros2 run openarm_static_bimanual_bringup lerobot_trajectory_recorder.py \
     --ros-args \
-    -p dataset_name:=pick_red_cube \
+    -p dataset_name:=openarm_trajectory \
     -p task_description:="pick up the red cube and place it on the tray" \
     -p resume:=true
 ```
@@ -222,9 +222,8 @@ source ~/OpenArm0.3_data/install/setup.bash
 
 # Phase 1 데이터셋(trajectory_dataset)을 읽어서 -> VLA 데이터셋(vla_dataset) 생성
 ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
-    trajectory_dataset:=~/lerobot_datasets/pick_red_cube \
-    vla_dataset:=~/lerobot_datasets/pick_red_cube_vla \
-    vla_dataset:=~/lerobot_datasets/pick_red_cube_vla \
+    trajectory_dataset:=~/lerobot_datasets/openarm_trajectory \
+    vla_dataset:=~/lerobot_datasets/openarm_vla \
     task_description:="pick up the red cube and place it on the tray" \
     resume:=true
 ```
@@ -310,13 +309,13 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
 
 ### `lerobot_vla_collection.launch.py` (Phase 2)
 
-| 파라미터               | 필수          | 설명                                                      |
-| :--------------------- | :------------ | :-------------------------------------------------------- |
-| `trajectory_dataset` | **Yes** | 입력: Phase 1에서 만든 데이터셋 경로                      |
-| `vla_dataset`        | No            | 출력: 생성할 VLA 데이터셋 경로 (기본: 입력경로 +`_vla`) |
-| `task_description`   | No            | 최종 데이터셋에 저장될 작업 설명                          |
-| `episode_index`      | No            | `-1`: 전체 변환, `0`: 0번 에피소드만 변환 (테스트용)  |
-| `playback_speed`     | No            | 재생 속도 배율 (기본 1.0)                                 |
+| 파라미터               | 필수          | 설명                                                              |
+| :--------------------- | :------------ | :---------------------------------------------------------------- |
+| `trajectory_dataset` | **Yes** | 입력: Phase 1에서 만든 데이터셋 경로                              |
+| `vla_dataset`        | No            | 출력: 생성할 VLA 데이터셋 경로 (기본: 입력경로 +`_vla`)         |
+| `task_description`   | No            | 최종 데이터셋에 저장될 작업 설명                                  |
+| `episode_index`      | No            | `-1`: 전체 변환, `0`: 0번 에피소드만 변환 (테스트용)          |
+| `playback_speed`     | No            | 재생 속도 배율 (기본 1.0)                                         |
 | `resume`             | No            | `true`: 기존 VLA 데이터셋에 추가 (기본값) / `false`: 덮어쓰기 |
 
 ---
