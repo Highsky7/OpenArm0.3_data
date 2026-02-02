@@ -2,8 +2,15 @@ from setuptools import setup
 import sys
 
 # Workaround for 'error: option --editable not recognized' with recent setuptools/colcon
+# Also handles --build-directory which takes an argument
 if '--editable' in sys.argv:
     sys.argv.remove('--editable')
+
+if '--build-directory' in sys.argv:
+    idx = sys.argv.index('--build-directory')
+    sys.argv.pop(idx) # Remove flag
+    if idx < len(sys.argv):
+        sys.argv.pop(idx) # Remove value
 
 package_name = 'openarm_arduino_bridge'
 
