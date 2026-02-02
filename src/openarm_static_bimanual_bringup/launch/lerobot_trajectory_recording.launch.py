@@ -91,12 +91,30 @@ def generate_launch_description():
             default_value='bimanual manipulation task',
             description='Language instruction for VLA training'
         ),
+        DeclareLaunchArgument(
+            'enable_replay_mode',
+            default_value='false',
+            description='Enable replay mode for gravity_comp_node (accepts external position commands)'
+        ),
+        DeclareLaunchArgument(
+            'enable_initial_move',
+            default_value='true',
+            description='Enable moving to initial position before gravity compensation'
+        ),
+        DeclareLaunchArgument(
+            'initial_move_duration',
+            default_value='3.0',
+            description='Duration to move to initial position (seconds)'
+        ),
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
     can_device = LaunchConfiguration('can_device')
     urdf_path = LaunchConfiguration('urdf_path')
     active_arms = LaunchConfiguration('active_arms')
+    enable_replay_mode = LaunchConfiguration('enable_replay_mode')
+    enable_initial_move = LaunchConfiguration('enable_initial_move')
+    initial_move_duration = LaunchConfiguration('initial_move_duration')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
@@ -165,6 +183,13 @@ def generate_launch_description():
             'limit_spring_k': 3.0,
             'active_arms': active_arms,
             'gravity_scale_joints': [0.0, 2.5, 1.7, 1.7, 2.0, 2.0, 2.0],
+            'enable_replay_mode': enable_replay_mode,
+            'enable_initial_move': enable_initial_move,
+            'initial_move_duration': initial_move_duration,
+            # Default initial positions: [pi/2, pi/6, -pi/2, pi/3, 0, pi/2, 0, 0]
+            'initial_left_position': [1.5708, 0.5236, -1.5708, 1.0472, 0.0, 1.5708, 0.0, 0.0],
+            # Default initial positions: [-pi/2, pi/6, pi/2, pi/3, 0, pi/2, 0, 0]
+            'initial_right_position': [-1.5708, 0.5236, 1.5708, 1.0472, 0.0, 1.5708, 0.0, 0.0],
         }],
     )
     

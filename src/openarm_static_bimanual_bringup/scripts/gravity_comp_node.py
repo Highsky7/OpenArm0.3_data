@@ -116,10 +116,22 @@ class GravityCompNode(Node):
         # ===== Replay Mode Parameters =====
         # When enabled, accepts external position commands instead of using current position
         self.declare_parameter('enable_replay_mode', False)
-        # Maximum position change per control cycle (rad) - approx 3 degrees
-        self.declare_parameter('max_position_step_rad', 0.05)
+        # Maximum position change per control cycle (rad) - approx 6 degrees (increased for better tracking)
+        self.declare_parameter('max_position_step_rad', 0.1)
         # Timeout for external commands before reverting to teaching mode (seconds)
         self.declare_parameter('external_cmd_timeout', 1.0)
+        
+        # ===== Initial Position Parameters =====
+        # Enable moving to initial position before starting gravity compensation
+        self.declare_parameter('enable_initial_move', False)
+        # Initial position for left arm (8 joints: rev1~rev7 + gripper)
+        # Default: [pi/2, pi/6, -pi/2, pi/3, 0, pi/2, 0, 0]
+        self.declare_parameter('initial_left_position', [1.5708, 0.5236, -1.5708, 1.0472, 0.0, 1.5708, 0.0, 0.0])
+        # Initial position for right arm (8 joints: rev1~rev7 + gripper)
+        # Default: [-pi/2, pi/6, pi/2, pi/3, 0, pi/2, 0, 0]
+        self.declare_parameter('initial_right_position', [-1.5708, 0.5236, 1.5708, 1.0472, 0.0, 1.5708, 0.0, 0.0])
+        # Duration to move to initial position (seconds)
+        self.declare_parameter('initial_move_duration', 3.0)
         
         self.publish_rate = self.get_parameter('publish_rate').value
         self.enable_limit_protection = self.get_parameter('enable_limit_protection').value
@@ -185,6 +197,18 @@ class GravityCompNode(Node):
         self.last_joint_state = None
         self.is_enabled = True
         
+        # ===== Initial Move State =====
+        self.enable_initial_move = self.get_parameter('enable_initial_move').value
+        self.initial_left_position = self.get_parameter('initial_left_position').value
+        self.initial_right_position = self.get_parameter('initial_right_position').value
+        self.initial_move_duration = self.get_parameter('initial_move_duration').value
+        
+        # Initial move state machine: 'waiting' -> 'moving' -> 'done'
+        self.initial_move_state = 'waiting' if self.enable_initial_move else 'done'
+        self.initial_move_start_time = None
+        self.initial_move_start_left_pos = None
+        self.initial_move_start_right_pos = None
+        
         # ===== Replay Mode State =====
         self.enable_replay_mode = self.get_parameter('enable_replay_mode').value
         self.max_position_step_rad = self.get_parameter('max_position_step_rad').value
@@ -198,6 +222,11 @@ class GravityCompNode(Node):
         # Interpolated position commands (for smooth transitions)
         self.interpolated_left_pos = None
         self.interpolated_right_pos = None
+        
+        # Last published position commands (for rate limiting based on command, not sensor)
+        # This prevents accumulating drift from rate limiting
+        self.last_published_left_pos = None
+        self.last_published_right_pos = None
         
         # ===== Subscribers & Publishers =====
         self.js_sub = self.create_subscription(
@@ -234,6 +263,8 @@ class GravityCompNode(Node):
         self.get_logger().info(f'  Limit protection: {self.enable_limit_protection}')
         self.get_logger().info(f'  Safety margin: {math.degrees(self.safety_margin):.1f}°')
         self.get_logger().info(f'  Gravity scale (per joint): {self.gravity_scale_joints}')
+        if self.enable_initial_move:
+            self.get_logger().info(f'  [INITIAL MOVE ENABLED] - Duration: {self.initial_move_duration}s')
         self.get_logger().info('  Press Ctrl+C to stop')
         self.get_logger().info('  [Using simplified gravity model - URDF params embedded]')
     
@@ -253,28 +284,36 @@ class GravityCompNode(Node):
             self.external_right_pos = list(msg.data)
             self.last_external_cmd_time = self.get_clock().now()
     
-    def rate_limit_position(self, target_pos: list, current_pos: list) -> list:
+    def rate_limit_position(self, target_pos: list, last_published_pos: list, current_pos: list) -> list:
         """
         Apply rate limiting to position commands for smooth motion.
-        Limits the maximum change per control cycle to prevent sudden jumps.
+        Uses LAST PUBLISHED position as reference to prevent accumulating drift.
         
         Args:
             target_pos: Desired position from external command
-            current_pos: Current joint positions
+            last_published_pos: Last position command that was published
+            current_pos: Current joint positions (used for initialization only)
             
         Returns:
             Rate-limited position command
         """
-        if target_pos is None or current_pos is None:
-            return current_pos
+        if target_pos is None:
+            return last_published_pos if last_published_pos is not None else current_pos
+        
+        # Use last_published_pos as reference to prevent drift accumulation
+        # If no previous published position, use current position for first command
+        reference_pos = last_published_pos if last_published_pos is not None else current_pos
+        
+        if reference_pos is None:
+            return target_pos  # First command: go directly to target
         
         result = []
-        for i in range(len(current_pos)):
-            delta = target_pos[i] - current_pos[i]
+        for i in range(len(reference_pos)):
+            delta = target_pos[i] - reference_pos[i]
             # Clamp delta to max step size
             clamped_delta = max(-self.max_position_step_rad, 
                                min(self.max_position_step_rad, delta))
-            result.append(current_pos[i] + clamped_delta)
+            result.append(reference_pos[i] + clamped_delta)
         return result
     
     def check_external_cmd_timeout(self) -> bool:
@@ -411,6 +450,107 @@ class GravityCompNode(Node):
         
         return 0.0
     
+    def _handle_initial_move(self, left_pos: list, right_pos: list):
+        """
+        Handle initial position move phase.
+        
+        State machine:
+        - 'waiting': Wait for joint states, then start moving
+        - 'moving': Interpolate from current to target position
+        - 'done': Normal gravity compensation mode
+        """
+        current_time = time.time()
+        
+        # State: waiting -> start move
+        if self.initial_move_state == 'waiting':
+            # Wait for BOTH arms to be ready (if active_arms is 'both')
+            # This prevents starting with one arm while the other is still None
+            left_ready = (left_pos is not None) if self.active_arms in ('left', 'both') else True
+            right_ready = (right_pos is not None) if self.active_arms in ('right', 'both') else True
+            
+            if left_ready and right_ready:
+                self.initial_move_state = 'moving'
+                self.initial_move_start_time = current_time
+                self.initial_move_start_left_pos = list(left_pos) if left_pos else None
+                self.initial_move_start_right_pos = list(right_pos) if right_pos else None
+                self.get_logger().info('=' * 60)
+                self.get_logger().info('  🚀 Moving to initial position...')
+                self.get_logger().info(f'     Duration: {self.initial_move_duration}s')
+                if left_pos:
+                    self.get_logger().info(f'     Left target:  {[f"{x:.2f}" for x in self.initial_left_position[:7]]}')
+                if right_pos:
+                    self.get_logger().info(f'     Right target: {[f"{x:.2f}" for x in self.initial_right_position[:7]]}')
+                self.get_logger().info('=' * 60)
+            return
+        
+        # State: moving
+        if self.initial_move_state == 'moving':
+            elapsed = current_time - self.initial_move_start_time
+            progress = min(1.0, elapsed / self.initial_move_duration)
+            
+            # Smooth interpolation using cosine easing (slow start and end)
+            smooth_progress = 0.5 * (1.0 - math.cos(progress * math.pi))
+            
+            # Interpolate and publish for left arm
+            if left_pos is not None and self.initial_move_start_left_pos is not None:
+                left_target = self.initial_left_position[:7]  # Only arm joints (rev1~7)
+                left_interp = self._interpolate_positions(
+                    self.initial_move_start_left_pos, left_target, smooth_progress)
+                
+                # Compute gravity compensation at interpolated position
+                left_tau = self.compute_gravity_torque_pinocchio(left_interp, 'left')
+                for i in range(7):
+                    left_tau[i] += self.compute_limit_protection_torque(i, left_interp[i])
+                    max_tau = self.MAX_TORQUE[i]
+                    left_tau[i] = max(-max_tau, min(max_tau, left_tau[i]))
+                
+                # Publish position and effort commands
+                left_pos_cmd = Float64MultiArray()
+                left_pos_cmd.data = left_interp
+                self.left_pos_pub.publish(left_pos_cmd)
+                
+                left_cmd = Float64MultiArray()
+                left_cmd.data = left_tau
+                self.left_cmd_pub.publish(left_cmd)
+            
+            # Interpolate and publish for right arm
+            if right_pos is not None and self.initial_move_start_right_pos is not None:
+                right_target = self.initial_right_position[:7]  # Only arm joints (rev1~7)
+                right_interp = self._interpolate_positions(
+                    self.initial_move_start_right_pos, right_target, smooth_progress)
+                
+                # Compute gravity compensation at interpolated position
+                right_tau = self.compute_gravity_torque_pinocchio(right_interp, 'right')
+                for i in range(7):
+                    right_tau[i] += self.compute_limit_protection_torque(i, right_interp[i])
+                    max_tau = self.MAX_TORQUE[i]
+                    right_tau[i] = max(-max_tau, min(max_tau, right_tau[i]))
+                
+                # Publish position and effort commands
+                right_pos_cmd = Float64MultiArray()
+                right_pos_cmd.data = right_interp
+                self.right_pos_pub.publish(right_pos_cmd)
+                
+                right_cmd = Float64MultiArray()
+                right_cmd.data = right_tau
+                self.right_cmd_pub.publish(right_cmd)
+            
+            # Log progress
+            if int(elapsed * 2) != int((elapsed - 0.01) * 2):  # Log every 0.5s
+                self.get_logger().info(f'  Initial move: {progress * 100:.0f}%')
+            
+            # Check if done
+            if progress >= 1.0:
+                self.initial_move_state = 'done'
+                self.get_logger().info('=' * 60)
+                self.get_logger().info('  ✅ Initial position reached!')
+                self.get_logger().info('  Starting gravity compensation mode...')
+                self.get_logger().info('=' * 60)
+    
+    def _interpolate_positions(self, start: list, end: list, progress: float) -> list:
+        """Linear interpolation between two position lists."""
+        return [s + (e - s) * progress for s, e in zip(start, end)]
+    
     def control_loop(self):
         """Main control loop: compute and publish gravity compensation torques."""
         if self.last_joint_state is None or not self.is_enabled:
@@ -424,6 +564,11 @@ class GravityCompNode(Node):
             left_pos = self.get_positions(self.left_joints)
         if self.active_arms in ('right', 'both'):
             right_pos = self.get_positions(self.right_joints)
+        
+        # ===== Initial Position Move Phase =====
+        if self.initial_move_state != 'done':
+            self._handle_initial_move(left_pos, right_pos)
+            return
         
         # Check if external commands are still valid (not timed out)
         use_external_cmd = self.enable_replay_mode and self.check_external_cmd_timeout()
@@ -444,18 +589,24 @@ class GravityCompNode(Node):
             # Determine position command based on mode
             if use_external_cmd and self.external_left_pos is not None:
                 # REPLAY MODE: Use rate-limited external position command
+                # Use last_published_pos as reference to prevent drift accumulation
                 left_pos_to_publish = self.rate_limit_position(
-                    self.external_left_pos, left_pos)
+                    self.external_left_pos, self.last_published_left_pos, left_pos)
                 # Update interpolated position for next cycle
                 self.interpolated_left_pos = left_pos_to_publish
             else:
                 # TEACHING MODE: Use current position (ensures Kp*(q_des - q) = 0)
                 left_pos_to_publish = left_pos
+                # Reset last_published when in teaching mode
+                self.last_published_left_pos = None
             
             # Publish position and effort commands
             left_pos_cmd = Float64MultiArray()
             left_pos_cmd.data = left_pos_to_publish
             self.left_pos_pub.publish(left_pos_cmd)
+            
+            # Update last published position for next cycle rate limiting
+            self.last_published_left_pos = list(left_pos_to_publish)
             
             left_cmd = Float64MultiArray()
             left_cmd.data = left_tau
@@ -477,18 +628,24 @@ class GravityCompNode(Node):
             # Determine position command based on mode
             if use_external_cmd and self.external_right_pos is not None:
                 # REPLAY MODE: Use rate-limited external position command
+                # Use last_published_pos as reference to prevent drift accumulation
                 right_pos_to_publish = self.rate_limit_position(
-                    self.external_right_pos, right_pos)
+                    self.external_right_pos, self.last_published_right_pos, right_pos)
                 # Update interpolated position for next cycle
                 self.interpolated_right_pos = right_pos_to_publish
             else:
                 # TEACHING MODE: Use current position (ensures Kp*(q_des - q) = 0)
                 right_pos_to_publish = right_pos
+                # Reset last_published when in teaching mode
+                self.last_published_right_pos = None
             
             # Publish position and effort commands
             right_pos_cmd = Float64MultiArray()
             right_pos_cmd.data = right_pos_to_publish
             self.right_pos_pub.publish(right_pos_cmd)
+            
+            # Update last published position for next cycle rate limiting
+            self.last_published_right_pos = list(right_pos_to_publish)
             
             right_cmd = Float64MultiArray()
             right_cmd.data = right_tau

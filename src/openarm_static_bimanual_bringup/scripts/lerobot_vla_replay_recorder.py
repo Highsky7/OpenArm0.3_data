@@ -22,8 +22,10 @@ Part of 2-Phase VLA Data Collection Workflow:
     Phase 1: Manual teaching -> trajectory_dataset (lerobot_trajectory_recorder.py)
     Phase 2: Replay + record -> vla_dataset (this script)
 """
+import json
 import os
 import time
+import threading
 from pathlib import Path
 from threading import Lock
 from typing import Optional
@@ -34,7 +36,9 @@ import pandas as pd
 import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
-from sensor_msgs.msg import Image, JointState
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
+from sensor_msgs.msg import CompressedImage, JointState
 from std_msgs.msg import Float64MultiArray
 
 # LeRobot imports
@@ -64,11 +68,11 @@ class LeRobotVLAReplayRecorder(Node):
     RIGHT_ARM_JOINTS = ['right_rev1', 'right_rev2', 'right_rev3', 'right_rev4',
                         'right_rev5', 'right_rev6', 'right_rev7']
     
-    # Camera configuration
+    # Camera configuration (using compressed image topics for better bandwidth)
     CAMERA_TOPICS = {
-        'top': '/camera/cam_1/color/image_raw',
-        'wrist_left': '/camera/cam_2/color/image_raw',
-        'wrist_right': '/camera/cam_3/color/image_raw',
+        'top': '/camera/cam_1/color/image_raw/compressed',
+        'wrist_left': '/camera/cam_2/color/image_raw/compressed',
+        'wrist_right': '/camera/cam_3/color/image_raw/compressed',
     }
     IMAGE_SIZE = (256, 256)
     
@@ -80,7 +84,7 @@ class LeRobotVLAReplayRecorder(Node):
         self.declare_parameter('vla_dataset', '')
         self.declare_parameter('episode_index', -1)  # -1 for all episodes
         self.declare_parameter('playback_speed', 1.0)
-        self.declare_parameter('record_rate', 20.0)  # Hz
+        self.declare_parameter('record_rate', 30.0)  # Hz
         self.declare_parameter('robot_type', 'openarm_static_bimanual')
         self.declare_parameter('task_description', 'bimanual manipulation task')
         self.declare_parameter('resume', True)
@@ -106,6 +110,9 @@ class LeRobotVLAReplayRecorder(Node):
         self.vla_path = Path(os.path.expanduser(vla_path))
         self.vla_repo_id = f"local/{self.vla_path.name}"
         
+        # Original trajectory fps (will be loaded from info.json)
+        self.trajectory_fps: float = 30.0  # Default fallback
+        
         # State
         self.last_joint_state: Optional[JointState] = None
         self.cv_bridge = CvBridge()
@@ -113,6 +120,13 @@ class LeRobotVLAReplayRecorder(Node):
             key: None for key in self.CAMERA_TOPICS.keys()
         }
         self.image_lock = Lock()
+        self.joint_state_lock = Lock()
+        
+        # Callback groups for parallel processing
+        # Images and joint states need separate callback groups to run in parallel
+        self.image_callback_group = ReentrantCallbackGroup()
+        self.joint_callback_group = MutuallyExclusiveCallbackGroup()
+        self.timer_callback_group = MutuallyExclusiveCallbackGroup()
         
         # VLA Dataset
         self.vla_dataset: Optional[LeRobotDataset] = None
@@ -139,17 +153,19 @@ class LeRobotVLAReplayRecorder(Node):
             10
         )
         
-        # Subscriber: Joint states
+        # Subscriber: Joint states (separate callback group)
         self.js_sub = self.create_subscription(
-            JointState, '/joint_states', self.joint_state_callback, 10)
+            JointState, '/joint_states', self.joint_state_callback, 10,
+            callback_group=self.joint_callback_group)
         
-        # Subscribers: Cameras
+        # Subscribers: Cameras (compressed images) - ReentrantCallbackGroup allows parallel execution
         for key, topic in self.CAMERA_TOPICS.items():
             self.create_subscription(
-                Image,
+                CompressedImage,
                 topic,
                 lambda msg, k=key: self.image_callback(msg, k),
-                10
+                10,
+                callback_group=self.image_callback_group
             )
             self.get_logger().info(f'Subscribed: {topic} -> observation.images.{key}')
         
@@ -158,7 +174,7 @@ class LeRobotVLAReplayRecorder(Node):
         
         # Start replay+record
         self.get_logger().info('Waiting for cameras and joint states...')
-        self.create_timer(2.0, self.start_replay_once)
+        self.create_timer(2.0, self.start_replay_once, callback_group=self.timer_callback_group)
         self._started = False
     
     def _get_features(self) -> dict:
@@ -205,6 +221,7 @@ class LeRobotVLAReplayRecorder(Node):
                     robot_type=self.robot_type,
                     features=features,
                     use_videos=True,
+                    vcodec='h264',  # Use H.264 for better compatibility (AV1 has decoding issues)
                 )
                 self.get_logger().info(f'📁 Created new VLA dataset: {self.vla_path}')
         except Exception as e:
@@ -212,18 +229,33 @@ class LeRobotVLAReplayRecorder(Node):
             raise
     
     def joint_state_callback(self, msg: JointState):
-        """Store latest joint state."""
-        self.last_joint_state = msg
+        """Store latest joint state with thread safety."""
+        with self.joint_state_lock:
+            self.last_joint_state = msg
     
-    def image_callback(self, msg: Image, image_key: str):
-        """Store and resize latest camera image."""
+    def image_callback(self, msg: CompressedImage, image_key: str):
+        """Store and resize latest compressed camera image."""
         try:
-            cv_image = self.cv_bridge.imgmsg_to_cv2(msg, 'rgb8')
+            # Decode compressed image (JPEG/PNG) to numpy array
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            
+            if cv_image is None:
+                self.get_logger().warn(f'Failed to decode compressed image ({image_key})')
+                return
+            
+            # Convert BGR to RGB (OpenCV decodes as BGR)
+            cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+            
             resized = cv2.resize(cv_image, self.IMAGE_SIZE, interpolation=cv2.INTER_AREA)
             with self.image_lock:
                 self.latest_images[image_key] = resized
+                # Track when each camera was last updated
+                if not hasattr(self, '_image_update_times'):
+                    self._image_update_times = {}
+                self._image_update_times[image_key] = time.monotonic()
         except Exception as e:
-            self.get_logger().warn(f'Image conversion error ({image_key}): {e}')
+            self.get_logger().warn(f'Compressed image conversion error ({image_key}): {e}')
     
     def _get_current_images(self) -> dict[str, Optional[np.ndarray]]:
         """Get current images with thread safety."""
@@ -232,23 +264,24 @@ class LeRobotVLAReplayRecorder(Node):
                     for k, v in self.latest_images.items()}
     
     def _get_joint_positions(self) -> Optional[np.ndarray]:
-        """Extract joint positions in correct order."""
-        if self.last_joint_state is None:
-            return None
-        
-        pos_dict = {}
-        for i, name in enumerate(self.last_joint_state.name):
-            if i < len(self.last_joint_state.position):
-                pos_dict[name] = self.last_joint_state.position[i]
-        
-        positions = []
-        for joint_name in self.JOINT_NAMES:
-            if joint_name in pos_dict:
-                positions.append(pos_dict[joint_name])
-            else:
-                positions.append(0.0)
-        
-        return np.array(positions, dtype=np.float32)
+        """Extract joint positions in correct order with thread safety."""
+        with self.joint_state_lock:
+            if self.last_joint_state is None:
+                return None
+            
+            pos_dict = {}
+            for i, name in enumerate(self.last_joint_state.name):
+                if i < len(self.last_joint_state.position):
+                    pos_dict[name] = self.last_joint_state.position[i]
+            
+            positions = []
+            for joint_name in self.JOINT_NAMES:
+                if joint_name in pos_dict:
+                    positions.append(pos_dict[joint_name])
+                else:
+                    positions.append(0.0)
+            
+            return np.array(positions, dtype=np.float32)
     
     def _publish_arm_command(self, publisher, positions):
         """Publish arm position command."""
@@ -284,6 +317,21 @@ class LeRobotVLAReplayRecorder(Node):
     
     def replay_and_record(self):
         """Main replay and record loop."""
+        # Load original trajectory fps from info.json
+        info_path = self.trajectory_path / 'meta' / 'info.json'
+        if info_path.exists():
+            try:
+                with open(info_path, 'r') as f:
+                    info = json.load(f)
+                self.trajectory_fps = float(info.get('fps', 30.0))
+                self.get_logger().info(f'📁 Loaded trajectory info: fps={self.trajectory_fps}')
+            except Exception as e:
+                self.get_logger().warn(f'Failed to load info.json: {e}, using default fps=30')
+                self.trajectory_fps = 30.0
+        else:
+            self.get_logger().warn(f'info.json not found at {info_path}, using default fps=30')
+            self.trajectory_fps = 30.0
+        
         # Load trajectory dataset (supports multi-chunk LeRobot v3.0 format)
         data_dir = self.trajectory_path / 'data'
         parquet_files = sorted(data_dir.glob('**/*.parquet'))
@@ -311,7 +359,9 @@ class LeRobotVLAReplayRecorder(Node):
         self.get_logger().info(f'  Trajectory source: {self.trajectory_path}')
         self.get_logger().info(f'  VLA output: {self.vla_path}')
         self.get_logger().info(f'  Episodes to process: {len(episodes)}')
-        self.get_logger().info(f'  Record rate: {self.record_rate} Hz')
+        self.get_logger().info(f'  Original trajectory fps: {self.trajectory_fps} Hz')
+        self.get_logger().info(f'  Effective playback fps: {self.trajectory_fps * self.playback_speed} Hz')
+        self.get_logger().info(f'  VLA record rate: {self.record_rate} Hz')
         self.get_logger().info('=' * 60)
         
         # Process each episode
@@ -335,22 +385,32 @@ class LeRobotVLAReplayRecorder(Node):
         self.get_logger().info('=' * 60)
     
     def _process_episode(self, ep_df, episode_idx: int):
-        """Process a single episode: replay + record."""
-        record_period = 1.0 / self.record_rate
+        """Process a single episode: replay + record with absolute timing."""
+        # Use ORIGINAL trajectory fps for replay timing (not VLA record_rate)
+        # This ensures the robot moves at the same speed as during recording
+        trajectory_period = 1.0 / self.trajectory_fps
         frames_recorded = 0
+        total_frames = len(ep_df)
         
-        # Pre-compute actions from trajectory (Option A: copy from trajectory)
-        actions = []
-        for i in range(len(ep_df)):
-            action = np.array(ep_df.iloc[i]['action'])
-            actions.append(action)
+        # Use monotonic time for precise timing (prevents drift from sleep inaccuracy)
+        start_time = time.monotonic()
         
-        for idx, row in ep_df.iterrows():
+        for frame_idx, (idx, row) in enumerate(ep_df.iterrows()):
             if not rclpy.ok():
                 break
             
-            # Get target positions from trajectory action
-            target_positions = np.array(row['action'])
+            # Calculate absolute target time for this frame using TRAJECTORY fps
+            # playback_speed > 1.0 means faster playback
+            target_time = start_time + (frame_idx * trajectory_period / self.playback_speed)
+            
+            # Get target positions from observation.state (actual recorded positions)
+            # Using observation.state instead of action prevents accumulated drift
+            # because it represents where the robot actually was during recording
+            if 'observation.state' in row and row['observation.state'] is not None:
+                target_positions = np.array(row['observation.state'])
+            else:
+                # Fallback to action if observation.state not available
+                target_positions = np.array(row['action'])
             
             # Extract arm and gripper positions
             left_arm_pos = target_positions[:7]
@@ -364,9 +424,13 @@ class LeRobotVLAReplayRecorder(Node):
             self._publish_gripper_command(self.left_gripper_pub, left_gripper_pos)
             self._publish_gripper_command(self.right_gripper_pub, right_gripper_pos)
             
-            # Small delay for robot to reach position
-            time.sleep(record_period * 0.3 / self.playback_speed)
-            rclpy.spin_once(self, timeout_sec=0.001)
+            # Wait until target time
+            # MultiThreadedExecutor handles callbacks in background threads,
+            # so we just need to wait for the right timing
+            current_time = time.monotonic()
+            wait_time = target_time - current_time
+            if wait_time > 0:
+                time.sleep(wait_time)
             
             # Record current state + cameras
             current_positions = self._get_joint_positions()
@@ -379,10 +443,22 @@ class LeRobotVLAReplayRecorder(Node):
                 self.get_logger().warn('Skipping frame: missing camera image')
                 continue
             
+            # Debug: Check if images are actually being updated
+            if frame_idx % 50 == 0 and hasattr(self, '_image_update_times'):
+                now = time.monotonic()
+                for cam_key, update_time in self._image_update_times.items():
+                    age_ms = (now - update_time) * 1000
+                    if age_ms > 100:  # Image older than 100ms is stale
+                        self.get_logger().warn(f'  ⚠️ {cam_key} image is {age_ms:.0f}ms old (stale!)')
+                    else:
+                        self.get_logger().info(f'  ✅ {cam_key} image is {age_ms:.0f}ms old (fresh)')
+            
             # Build VLA frame
+            # Use original action from trajectory for training (represents intended motion)
+            original_action = np.array(row['action'])
             frame = {
                 'observation.state': current_positions.copy(),
-                'action': target_positions.copy(),  # Option A: use trajectory action
+                'action': original_action.copy(),  # Keep original action for VLA training
                 'task': self.task_description,
             }
             
@@ -393,12 +469,13 @@ class LeRobotVLAReplayRecorder(Node):
             self.vla_dataset.add_frame(frame)
             frames_recorded += 1
             
-            # Timing for playback speed
-            remaining_sleep = record_period * 0.7 / self.playback_speed
-            if remaining_sleep > 0:
-                time.sleep(remaining_sleep)
-            
-            rclpy.spin_once(self, timeout_sec=0.001)
+            # Log progress every 100 frames
+            if frame_idx % 100 == 0:
+                elapsed = time.monotonic() - start_time
+                expected = frame_idx * trajectory_period / self.playback_speed
+                drift_ms = (elapsed - expected) * 1000
+                self.get_logger().info(
+                    f'  Frame {frame_idx}/{total_frames} | Timing drift: {drift_ms:+.1f}ms')
         
         # Save episode
         if frames_recorded > 1:
@@ -412,13 +489,19 @@ def main(args=None):
     rclpy.init(args=args)
     node = LeRobotVLAReplayRecorder()
     
+    # Use MultiThreadedExecutor to process callbacks in parallel
+    # This allows image callbacks and joint_state callbacks to run simultaneously
+    executor = MultiThreadedExecutor(num_threads=6)  # 3 cameras + joint_states + timer + margin
+    executor.add_node(node)
+    
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         if node.vla_dataset:
             node.vla_dataset.finalize()
             node.get_logger().info('Dataset finalized on interrupt')
     finally:
+        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
 

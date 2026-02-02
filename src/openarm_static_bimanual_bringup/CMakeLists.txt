@@ -48,6 +48,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/scripts)
     scripts/lerobot_trajectory_recorder.py
     scripts/lerobot_vla_replay_recorder.py
     scripts/fake_camera_publisher.py
+    scripts/simple_state_replay.py
     DESTINATION lib/${PROJECT_NAME}
   )
 endif()

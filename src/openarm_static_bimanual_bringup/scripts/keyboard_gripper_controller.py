@@ -9,6 +9,10 @@ Controls CAN motor grippers via ros2_control:
 
 Run in a separate terminal:
   ros2 run openarm_static_bimanual_bringup keyboard_gripper_controller.py
+
+FIX: Separated target position from actual position to prevent jittering.
+     - target_pos: commanded position (only modified by keyboard input)
+     - actual_pos: feedback from joint_states (for monitoring only)
 """
 import select
 import sys
@@ -28,15 +32,16 @@ class KeyboardGripperController(Node):
     Publishes to /left_gripper_controller/commands and /right_gripper_controller/commands
     for gripper joints (rev8) with Float64MultiArray values in radians.
     
-    IMPORTANT: Waits for joint_states to sync actual gripper positions before sending commands.
+    IMPORTANT: Separates target position (commanded) from actual position (feedback)
+    to prevent jittering caused by feedback overwriting the command.
     """
     
     def __init__(self):
         super().__init__('keyboard_gripper_controller')
         
         # Parameters
-        self.declare_parameter('gripper_speed', 2.0)  # rad/s
-        self.declare_parameter('publish_rate', 20.0)  # Hz
+        self.declare_parameter('gripper_speed', 4.0)  # rad/s (reduced from 16 for smoother motion)
+        self.declare_parameter('publish_rate', 30.0)  # Hz (increased for smoother updates)
         # Gripper limits - extended range to handle motor zero offset
         # URDF says 0.0~1.57, but motor may have offset from calibration
         self.declare_parameter('min_gripper', -0.5)   # Extended for motor offset
@@ -51,9 +56,14 @@ class KeyboardGripperController(Node):
         self.left_joint_name = self.get_parameter('left_joint_name').value
         self.right_joint_name = self.get_parameter('right_joint_name').value
         
-        # Current gripper positions - None until synced from joint_states
-        self.left_gripper_pos = None
-        self.right_gripper_pos = None
+        # TARGET positions (commanded) - modified only by keyboard input
+        self.left_target_pos = None
+        self.right_target_pos = None
+        
+        # ACTUAL positions (feedback) - updated from joint_states for monitoring
+        self.left_actual_pos = None
+        self.right_actual_pos = None
+        
         self.initialized = False
         
         # Key states (for continuous movement while held)
@@ -81,37 +91,45 @@ class KeyboardGripperController(Node):
         self.get_logger().info(f'  Left joint: {self.left_joint_name}')
         self.get_logger().info(f'  Right joint: {self.right_joint_name}')
         self.get_logger().info('  Gripper range: %.2f ~ %.2f rad' % (self.min_gripper, self.max_gripper))
+        self.get_logger().info(f'  Speed: {self.gripper_speed} rad/s, Rate: {self.publish_rate} Hz')
         self.get_logger().info("  'q' = Left open,  'w' = Left close")
         self.get_logger().info("  'o' = Right open, 'p' = Right close")
         self.get_logger().info("  ESC or Ctrl+C to quit")
         self.get_logger().info('  Waiting for joint_states to sync...')
     
     def joint_state_callback(self, msg: JointState):
-        """Update current gripper positions from joint states."""
+        """Update actual gripper positions from joint states (for monitoring only)."""
         for i, name in enumerate(msg.name):
             if i < len(msg.position):
                 if name == self.left_joint_name:
-                    if self.left_gripper_pos is None:
+                    # First time: initialize TARGET from actual position
+                    if self.left_target_pos is None:
+                        self.left_target_pos = msg.position[i]
                         self.get_logger().info(f'  ✓ Left gripper synced: {msg.position[i]:.3f} rad')
-                    self.left_gripper_pos = msg.position[i]
+                    # Always update ACTUAL position (for monitoring only, not for commands)
+                    self.left_actual_pos = msg.position[i]
+                    
                 elif name == self.right_joint_name:
-                    if self.right_gripper_pos is None:
+                    # First time: initialize TARGET from actual position
+                    if self.right_target_pos is None:
+                        self.right_target_pos = msg.position[i]
                         self.get_logger().info(f'  ✓ Right gripper synced: {msg.position[i]:.3f} rad')
-                    self.right_gripper_pos = msg.position[i]
+                    # Always update ACTUAL position (for monitoring only, not for commands)
+                    self.right_actual_pos = msg.position[i]
         
         # Check initialization
         if not self.initialized:
-            if self.left_gripper_pos is not None and self.right_gripper_pos is not None:
+            if self.left_target_pos is not None and self.right_target_pos is not None:
                 self.initialized = True
                 self.get_logger().info('  ✓ Both grippers synced! Ready for keyboard control.')
-            elif self.left_gripper_pos is not None or self.right_gripper_pos is not None:
+            elif self.left_target_pos is not None or self.right_target_pos is not None:
                 # Log available joints for debugging
                 if not hasattr(self, '_logged_joints'):
                     self._logged_joints = True
                     self.get_logger().warn(f'  Available joints: {list(msg.name)}')
     
     def timer_callback(self):
-        """Update gripper positions based on key states."""
+        """Update TARGET positions based on key states and publish commands."""
         # Don't publish until we've synced with actual positions
         if not self.initialized:
             return
@@ -119,25 +137,25 @@ class KeyboardGripperController(Node):
         dt = 1.0 / self.publish_rate
         delta = self.gripper_speed * dt
         
-        # Left gripper
+        # Left gripper - modify TARGET position only
         if self.keys_pressed['q']:  # Open (decrease position)
-            self.left_gripper_pos = max(self.min_gripper, self.left_gripper_pos - delta)
+            self.left_target_pos = max(self.min_gripper, self.left_target_pos - delta)
         if self.keys_pressed['w']:  # Close (increase position)
-            self.left_gripper_pos = min(self.max_gripper, self.left_gripper_pos + delta)
+            self.left_target_pos = min(self.max_gripper, self.left_target_pos + delta)
         
-        # Right gripper
+        # Right gripper - modify TARGET position only
         if self.keys_pressed['o']:  # Open (decrease position)
-            self.right_gripper_pos = max(self.min_gripper, self.right_gripper_pos - delta)
+            self.right_target_pos = max(self.min_gripper, self.right_target_pos - delta)
         if self.keys_pressed['p']:  # Close (increase position)
-            self.right_gripper_pos = min(self.max_gripper, self.right_gripper_pos + delta)
+            self.right_target_pos = min(self.max_gripper, self.right_target_pos + delta)
         
-        # Publish gripper commands
+        # Publish gripper commands (TARGET positions, not actual)
         left_msg = Float64MultiArray()
-        left_msg.data = [self.left_gripper_pos]
+        left_msg.data = [self.left_target_pos]
         self.left_gripper_pub.publish(left_msg)
         
         right_msg = Float64MultiArray()
-        right_msg.data = [self.right_gripper_pos]
+        right_msg.data = [self.right_target_pos]
         self.right_gripper_pub.publish(right_msg)
     
     def handle_key(self, key: str, pressed: bool):
@@ -163,7 +181,7 @@ def main(args=None):
     try:
         while rclpy.ok():
             # Check for keyboard input with small timeout
-            if select.select([sys.stdin], [], [], 0.02)[0]:
+            if select.select([sys.stdin], [], [], 0.01)[0]:
                 key = sys.stdin.read(1)
                 
                 if key == '\x1b':  # ESC
@@ -173,13 +191,11 @@ def main(args=None):
                 elif key.lower() in node.keys_pressed:
                     # Set key pressed - will be processed in timer_callback
                     node.handle_key(key.lower(), True)
-                    # Log key press for debugging
-                    node.get_logger().info(f"Key '{key.lower()}' pressed - L:{node.left_gripper_pos:.3f} R:{node.right_gripper_pos:.3f}")
             
             # Process ROS callbacks
-            rclpy.spin_once(node, timeout_sec=0.01)
+            rclpy.spin_once(node, timeout_sec=0.005)
             
-            # Reset keys after processing (they get one update cycle)
+            # Reset keys after ROS spin (ensures timer_callback sees the key press)
             for k in list(node.keys_pressed.keys()):
                 node.keys_pressed[k] = False
                 

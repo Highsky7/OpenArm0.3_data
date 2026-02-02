@@ -106,6 +106,16 @@ def generate_launch_description():
             default_value='true',
             description='Resume (append) to existing VLA dataset if true'
         ),
+        DeclareLaunchArgument(
+            'enable_initial_move',
+            default_value='true',
+            description='Enable moving to initial position before replay'
+        ),
+        DeclareLaunchArgument(
+            'initial_move_duration',
+            default_value='3.0',
+            description='Duration to move to initial position (seconds)'
+        ),
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
@@ -119,6 +129,8 @@ def generate_launch_description():
     record_rate = LaunchConfiguration('record_rate')
     task_description = LaunchConfiguration('task_description')
     resume = LaunchConfiguration('resume')
+    enable_initial_move = LaunchConfiguration('enable_initial_move')
+    initial_move_duration = LaunchConfiguration('initial_move_duration')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
@@ -189,6 +201,12 @@ def generate_launch_description():
             'gravity_scale_joints': [0.0, 2.5, 1.7, 1.7, 2.0, 2.0, 2.0],
             'enable_replay_mode': True,
             'external_cmd_timeout': 0.5,
+            'enable_initial_move': enable_initial_move,
+            'initial_move_duration': initial_move_duration,
+            # Default initial positions: [pi/2, pi/6, -pi/2, pi/3, 0, pi/2, 0, 0]
+            'initial_left_position': [1.5708, 0.5236, -1.5708, 1.0472, 0.0, 1.5708, 0.0, 0.0],
+            # Default initial positions: [-pi/2, pi/6, pi/2, pi/3, 0, pi/2, 0, 0]
+            'initial_right_position': [-1.5708, 0.5236, 1.5708, 1.0472, 0.0, 1.5708, 0.0, 0.0],
         }],
     )
     
