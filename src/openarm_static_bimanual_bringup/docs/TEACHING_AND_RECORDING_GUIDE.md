@@ -184,7 +184,7 @@ ros2 run openarm_static_bimanual_bringup lerobot_trajectory_recorder.py \
 > [!IMPORTANT]
 > **Task Description (Short/Long Horizon)**
 >
-> - "Move the paper box at the front to the back" (dataset name: Moving box)
+> - "Move the basket to the right side and put the paper roll in the basket" (dataset name: Moving basket)
 > - "Move the cube on the right to the left" (dataset name: Moving cube)
 > - "Put the items on the desk into the basket" (dataset name: Putting items)
 > - "Put the umbrellas into the basket" (dataset name: Putting umbrellas)
