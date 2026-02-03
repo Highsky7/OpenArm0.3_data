@@ -1,8 +1,11 @@
-**Task Description (Short/Long Horizon)**
+Task Prompt
 
-- "Move the basket to the right side and put the paper roll in the basket" (dataset name: Moving basket)
-- "Move the cube on the right to the left" (dataset name: Moving cube)
-- "Put the items on the desk into the basket" (dataset name: Putting items)
-- "Put the umbrellas into the basket" (dataset name: Putting umbrellas)
-- "Stack the paper boxes on the desk" (dataset name: Stacking boxes)
-- "Put the toilet paper rolls into the basket" (dataset name: Putting toilet paper rolls)
+Short Horizon: 
+Move the paper box at the front to the back.                (앞쪽에 있는 종이 박스를 뒤쪽으로 옮겨라)
+Move the cube on the right to the left.                (오른쪽에 있는 큐브를 왼쪽으로 옮겨라)
+
+Long Horizon:
+Put the items on the desk into the basket.                (책상에 있는 물건들을 바구니에 넣어라)
+Put the umbrellas into the basket.                (우산들을 바구니에 넣어라)
+Stack the paper boxes at the front behind the desk.                (앞쪽에 있는 종이 박스들을 책상 뒤쪽에 쌓아라)
+Put the toilet paper rolls into the basket.                (휴지들을 바구니에 넣어라)

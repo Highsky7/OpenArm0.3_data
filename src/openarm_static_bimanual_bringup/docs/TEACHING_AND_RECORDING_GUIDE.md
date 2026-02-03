@@ -161,7 +161,7 @@ source ~/OpenArm0.3_data/install/setup.bash
 # 예시: 'pick_red_cube' 데이터셋에 저장/이어쓰기
 ros2 run openarm_static_bimanual_bringup lerobot_trajectory_recorder.py \
     --ros-args \
-    -p dataset_name:=openarm_trajectory \
+    -p dataset_name:=pick_red_cube \
     -p task_description:="pick up the red cube and place it on the tray" \
     -p resume:=true
 ```
@@ -184,12 +184,11 @@ ros2 run openarm_static_bimanual_bringup lerobot_trajectory_recorder.py \
 > [!IMPORTANT]
 > **Task Description (Short/Long Horizon)**
 >
-> - "Move the basket to the right side and put the paper roll in the basket" (dataset name: Moving basket)
-> - "Move the cube on the right to the left" (dataset name: Moving cube)
-> - "Put the items on the desk into the basket" (dataset name: Putting items)
-> - "Put the umbrellas into the basket" (dataset name: Putting umbrellas)
-> - "Stack the paper boxes on the desk" (dataset name: Stacking boxes)
-> - "Put the toilet paper rolls into the basket" (dataset name: Putting toilet paper rolls)
+> - "Move the basket to the right side and put the paper roll in the basket" (dataset name: moving_basket)
+> - "Put the umbrellas into the basket" (dataset name: putting_umbrellas)
+> - "Move the Rubik's Cube on the right end to the left end using both arms" (dataset name: moving_cube)
+> - "Move the yellow cube on the center of desk and stack the black cube on the yellow cube" (dataset name: stacking_cubes)
+> - "Stack the paper boxes on the desk" (dataset name: stacking_boxes)
 > - Phase 1에서 입력한 설명은 참고용이며, **Phase 2에서 최종 확정**됩니다.
 
 ---
@@ -221,11 +220,7 @@ source /opt/ros/humble/setup.bash
 source ~/OpenArm0.3_data/install/setup.bash
 
 # Phase 1 데이터셋(trajectory_dataset)을 읽어서 -> VLA 데이터셋(vla_dataset) 생성
-ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
-    trajectory_dataset:=~/lerobot_datasets/openarm_trajectory \
-    vla_dataset:=~/lerobot_datasets/openarm_vla \
-    task_description:="pick up the red cube and place it on the tray" \
-    resume:=true
+ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py     trajectory_dataset:=~/lerobot_datasets/putting_umbrellas1     vla_dataset:=~/lerobot_datasets/openarm_vla     task_description:="Put the umbrellas into the basket"     repeat_count:=10
 ```
 
 ### 처리 흐름
@@ -309,13 +304,13 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
 
 ### `lerobot_vla_collection.launch.py` (Phase 2)
 
-| 파라미터               | 필수          | 설명                                                              |
-| :--------------------- | :------------ | :---------------------------------------------------------------- |
-| `trajectory_dataset` | **Yes** | 입력: Phase 1에서 만든 데이터셋 경로                              |
-| `vla_dataset`        | No            | 출력: 생성할 VLA 데이터셋 경로 (기본: 입력경로 +`_vla`)         |
-| `task_description`   | No            | 최종 데이터셋에 저장될 작업 설명                                  |
-| `episode_index`      | No            | `-1`: 전체 변환, `0`: 0번 에피소드만 변환 (테스트용)          |
-| `playback_speed`     | No            | 재생 속도 배율 (기본 1.0)                                         |
+| 파라미터               | 필수          | 설명                                                      |
+| :--------------------- | :------------ | :-------------------------------------------------------- |
+| `trajectory_dataset` | **Yes** | 입력: Phase 1에서 만든 데이터셋 경로                      |
+| `vla_dataset`        | No            | 출력: 생성할 VLA 데이터셋 경로 (기본: 입력경로 +`_vla`) |
+| `task_description`   | No            | 최종 데이터셋에 저장될 작업 설명                          |
+| `episode_index`      | No            | `-1`: 전체 변환, `0`: 0번 에피소드만 변환 (테스트용)  |
+| `playback_speed`     | No            | 재생 속도 배율 (기본 1.0)                                 |
 | `resume`             | No            | `true`: 기존 VLA 데이터셋에 추가 (기본값) / `false`: 덮어쓰기 |
 
 ---
