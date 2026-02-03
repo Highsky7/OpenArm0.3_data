@@ -189,7 +189,7 @@ ros2 run openarm_static_bimanual_bringup lerobot_trajectory_recorder.py \
 > - "Move the Rubik's Cube on the right end to the left end using both arms" (dataset name: moving_cube)
 > - "Move the yellow cube on the center of desk and stack the black cube on the yellow cube" (dataset name: stacking_cubes)
 > - "Stack the paper boxes on the desk" (dataset name: stacking_boxes)
-> - Phase 1에서 입력한 설명은 참고용이며, **Phase 2에서 최종 확정**됩니다.
+> - **Phase 1, Phase 2에서 왠만해서는 동일한 task_description을 활용해주시면 좋습니다.**
 
 ---
 
@@ -220,14 +220,39 @@ source /opt/ros/humble/setup.bash
 source ~/OpenArm0.3_data/install/setup.bash
 
 # Phase 1 데이터셋(trajectory_dataset)을 읽어서 -> VLA 데이터셋(vla_dataset) 생성
-ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py     trajectory_dataset:=~/lerobot_datasets/putting_umbrellas1     vla_dataset:=~/lerobot_datasets/openarm_vla     task_description:="Put the umbrellas into the basket"     repeat_count:=10
+ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
+    trajectory_dataset:=~/lerobot_datasets/putting_umbrellas1 \
+    vla_dataset:=~/lerobot_datasets/openarm_vla \
+    task_description:="Put the umbrellas into the basket" \
+    repeat_count:=10
 ```
+
+> [!NOTE]
+> **주요 옵션 설명**
+>
+> - **`trajectory_dataset`** (필수): Phase 1에서 수집한 원본 Trajectory 데이터셋의 경로입니다.
+> - **`vla_dataset`**: 생성될 VLA 데이터셋의 저장 경로입니다. 지정하지 않을 경우 `trajectory_dataset` 경로 뒤에 `_vla`가 붙습니다.
+> - **`task_description`**: 데이터셋 메타데이터에 기록될 작업 설명입니다. 자연어 지시사항(Instruction)으로 사용됩니다.
+> - **`repeat_count`**: **데이터 증강(Augmentation)을 위한 핵심 기능입니다.**
+>   - 동일한 Trajectory를 지정된 횟수만큼 반복 재생합니다.
+>   - 반복할 때마다 카메라 노이즈, 조명 변화 등이 자연스럽게 반영되어 데이터의 다양성을 확보할 수 있습니다.
+>   - 예: 에피소드 50개를 10회 반복(`repeat_count:=10`)하면 총 500개의 데이터를 확보할 수 있습니다.
 
 ### 처리 흐름
 
 1. 로봇 초기화 + 카메라 연결 확인 (~10초 대기)
 2. **자동 재생 시작**: 로봇이 Phase 1의 경로를 그대로 따라 움직임
 3. **자동 녹화**: 카메라 영상 + Joint State를 동기화하여 저장
+
+    > [!IMPORTANT]
+    > **[다중 반복(Repeat Count > 1) 사용 시 환경 초기화 타이밍]**
+    >
+    > 각 에피소드 반복 사이에는 약 **2~3초**의 대기 시간만 주어집니다. 물체를 초기 위치로 옮길 때는 터미널의 로그 메시지를 주시하세요.
+    >
+    > 1. `✅ Episode recorded: ...` 메시지와 `⏳ Waiting 2s before next episode...` 메시지가 뜨면 **즉시** 물체를 초기 위치로 옮기세요.
+    > 2. `📍 Moving to episode start position` 메시지가 뜨기 **전에** 손을 빼야 합니다.
+    > 3. 시간이 부족하다면 안전을 위해 `Ctrl+C`로 종료한 뒤 다음 에피소드부터 다시 실행하는 것을 권장합니다.
+
 4. 모든 에피소드 처리 후 **자동 종료**
 
 > [!WARNING]
@@ -304,14 +329,18 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
 
 ### `lerobot_vla_collection.launch.py` (Phase 2)
 
-| 파라미터               | 필수          | 설명                                                      |
-| :--------------------- | :------------ | :-------------------------------------------------------- |
-| `trajectory_dataset` | **Yes** | 입력: Phase 1에서 만든 데이터셋 경로                      |
-| `vla_dataset`        | No            | 출력: 생성할 VLA 데이터셋 경로 (기본: 입력경로 +`_vla`) |
-| `task_description`   | No            | 최종 데이터셋에 저장될 작업 설명                          |
-| `episode_index`      | No            | `-1`: 전체 변환, `0`: 0번 에피소드만 변환 (테스트용)  |
-| `playback_speed`     | No            | 재생 속도 배율 (기본 1.0)                                 |
-| `resume`             | No            | `true`: 기존 VLA 데이터셋에 추가 (기본값) / `false`: 덮어쓰기 |
+| 파라미터                | 필수          | 설명                                                                   |
+| :---------------------- | :------------ | :--------------------------------------------------------------------- |
+| `trajectory_dataset`    | **Yes**       | 입력: Phase 1에서 만든 데이터셋 경로                                   |
+| `vla_dataset`           | No            | 출력: 생성할 VLA 데이터셋 경로 (기본: 입력경로 +`_vla`)                |
+| `task_description`      | No            | 최종 데이터셋에 저장될 작업 설명                                       |
+| `episode_index`         | No            | `-1`: 전체 변환, `0`: 0번 에피소드만 변환 (테스트용)                   |
+| `playback_speed`        | No            | 재생 속도 배율 (기본 1.0)                                              |
+| `resume`                | No            | `true`: 기존 VLA 데이터셋에 추가 / `false`: 덮어쓰기                   |
+| `repeat_count`          | No            | **데이터 증강**: 각 에피소드를 몇 번 반복 재생할지 설정 (기본 1)       |
+| `enable_initial_move`   | No            | `true`: 재생 시작 전 초기 위치로 이동 (기본 true)                      |
+| `initial_move_duration` | No            | 초기 위치 이동 시간 (초), 기본 3.0s                                    |
+| `record_rate`           | No            | 카메라 녹화 프레임레이트 (Hz), 기본 30.0                               |
 
 ---
 
