@@ -41,8 +41,48 @@ from rclpy.executors import MultiThreadedExecutor
 from sensor_msgs.msg import CompressedImage, JointState
 from std_msgs.msg import Float64MultiArray
 
-# LeRobot imports
+# -----------------------------------------------------------------------------
+# MONKEY PATCH: FORCE H.264 CODEC (MUST BE APPLIED BEFORE ANY LEROBOT IMPORTS)
+# -----------------------------------------------------------------------------
+# The installed `lerobot` library defaults to `libsvtav1` (AV1), which causes 
+# codec incompatibility issues when re-opening datasets (e.g., episode 2+).
+# We patch `video_utils.encode_video_frames` globally to enforce H.264.
+# -----------------------------------------------------------------------------
+import functools
+
+try:
+    # 1. Import video_utils directly (source of the function)
+    import lerobot.datasets.video_utils
+    from lerobot.datasets.video_utils import encode_video_frames
+
+    print("🔧 [Monkey Patch] Enforcing 'h264' + 'yuv420p' globally...")
+
+    # 2. Create the fixed partial function
+    fixed_encode_video_frames = functools.partial(
+        encode_video_frames,
+        vcodec="h264",
+        pix_fmt="yuv420p",
+        overwrite=True
+    )
+
+    # 3. Patch the SOURCE module immediately
+    lerobot.datasets.video_utils.encode_video_frames = fixed_encode_video_frames
+    
+    # 4. Patch LeRobotDataset module (in case it's already imported or imports differently)
+    import lerobot.datasets.lerobot_dataset
+    lerobot.datasets.lerobot_dataset.encode_video_frames = fixed_encode_video_frames
+
+    print("✅ [Monkey Patch] Successfully patched `video_utils` and `lerobot_dataset`.")
+
+except ImportError as e:
+    print(f"⚠️ [Monkey Patch] Failed to apply patch: {e}")
+    # Proceed anyway, hoping for the best (or let it fail if critical)
+
+# LeRobot imports (Now they will use the patched VIDEO_UTILS)
+
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+
 
 
 class LeRobotVLAReplayRecorder(Node):
@@ -88,6 +128,7 @@ class LeRobotVLAReplayRecorder(Node):
         self.declare_parameter('robot_type', 'openarm_static_bimanual')
         self.declare_parameter('task_description', 'bimanual manipulation task')
         self.declare_parameter('resume', True)
+        self.declare_parameter('repeat_count', 1)  # Number of times to repeat trajectory for VLA episodes
         
         trajectory_path = self.get_parameter('trajectory_dataset').value
         vla_path = self.get_parameter('vla_dataset').value
@@ -97,6 +138,7 @@ class LeRobotVLAReplayRecorder(Node):
         self.robot_type = self.get_parameter('robot_type').value
         self.task_description = self.get_parameter('task_description').value
         self.resume = self.get_parameter('resume').value
+        self.repeat_count = self.get_parameter('repeat_count').value
         
         if not trajectory_path:
             self.get_logger().error('No trajectory_dataset specified!')
@@ -202,10 +244,24 @@ class LeRobotVLAReplayRecorder(Node):
         
         return features
     
-    def _init_vla_dataset(self):
-        """Initialize VLA dataset."""
+    def _init_vla_dataset(self, force_create: bool = False):
+        """
+        Initialize VLA dataset.
+        
+        Args:
+            force_create: If True, skip resume check (used for re-initialization)
+        """
         try:
-            if self.resume and self.vla_path.exists():
+            # Close existing dataset if any (important for video encoder reset)
+            if self.vla_dataset is not None:
+                try:
+                    # Don't call finalize() here - just release resources
+                    del self.vla_dataset
+                    self.vla_dataset = None
+                except Exception:
+                    pass
+            
+            if not force_create and self.resume and self.vla_path.exists():
                 self.vla_dataset = LeRobotDataset(
                     self.vla_repo_id,
                     root=self.vla_path,
@@ -226,6 +282,41 @@ class LeRobotVLAReplayRecorder(Node):
                 self.get_logger().info(f'📁 Created new VLA dataset: {self.vla_path}')
         except Exception as e:
             self.get_logger().error(f'Failed to initialize VLA dataset: {e}')
+            raise
+    
+    def _reopen_dataset_for_next_episode(self):
+        """
+        Reopen dataset to reset video encoder state.
+        
+        This is crucial for H.264 encoding: each episode needs fresh encoder
+        to ensure proper keyframe (I-frame) generation at the start.
+        """
+        self.get_logger().info('  🔄 Reopening dataset for clean video encoder state...')
+        try:
+            # Save current episode first
+            if self.vla_dataset is not None:
+                self.vla_dataset.save_episode()
+                
+                # Get current episode count before closing
+                num_episodes = self.vla_dataset.num_episodes
+                
+                # Close and reopen dataset
+                # Explicitly finalize to flush writers and release resources
+                self.vla_dataset.finalize()
+                del self.vla_dataset
+                self.vla_dataset = None
+                
+                # Small delay to ensure file handles are released
+                time.sleep(0.5)  # Increased delay slightly
+                
+                # Reopen in resume mode
+                self.vla_dataset = LeRobotDataset(
+                    self.vla_repo_id,
+                    root=self.vla_path,
+                )
+                self.get_logger().info(f'  ✅ Dataset reopened: {self.vla_dataset.num_episodes} episodes')
+        except Exception as e:
+            self.get_logger().error(f'Failed to reopen dataset: {e}')
             raise
     
     def joint_state_callback(self, msg: JointState):
@@ -358,22 +449,44 @@ class LeRobotVLAReplayRecorder(Node):
         self.get_logger().info('=' * 60)
         self.get_logger().info(f'  Trajectory source: {self.trajectory_path}')
         self.get_logger().info(f'  VLA output: {self.vla_path}')
-        self.get_logger().info(f'  Episodes to process: {len(episodes)}')
+        self.get_logger().info(f'  Trajectory episodes: {len(episodes)}')
+        self.get_logger().info(f'  Repeat count: {self.repeat_count}')
+        self.get_logger().info(f'  Total VLA episodes to create: {len(episodes) * self.repeat_count}')
         self.get_logger().info(f'  Original trajectory fps: {self.trajectory_fps} Hz')
         self.get_logger().info(f'  Effective playback fps: {self.trajectory_fps * self.playback_speed} Hz')
         self.get_logger().info(f'  VLA record rate: {self.record_rate} Hz')
         self.get_logger().info('=' * 60)
         
-        # Process each episode
-        for ep_idx in episodes:
-            if not rclpy.ok():
-                break
+        # Process each episode with repeat count
+        vla_episode_num = 0
+        total_vla_episodes = len(episodes) * self.repeat_count
+        
+        for repeat_idx in range(self.repeat_count):
+            self.get_logger().info(f'\n🔁 Repeat {repeat_idx + 1}/{self.repeat_count}')
             
-            ep_df = df[df['episode_index'] == ep_idx].copy()
-            ep_df = ep_df.sort_values('frame_index').reset_index(drop=True)
-            
-            self.get_logger().info(f'🎬 Processing episode {ep_idx}: {len(ep_df)} frames')
-            self._process_episode(ep_df, ep_idx)
+            for ep_idx_num, ep_idx in enumerate(episodes):
+                if not rclpy.ok():
+                    break
+                
+                ep_df = df[df['episode_index'] == ep_idx].copy()
+                ep_df = ep_df.sort_values('frame_index').reset_index(drop=True)
+                
+                vla_episode_num += 1
+                self.get_logger().info(f'🎬 VLA Episode {vla_episode_num}/{total_vla_episodes} (trajectory ep {ep_idx}, repeat {repeat_idx + 1}): {len(ep_df)} frames')
+                frames_recorded = self._process_episode(ep_df, ep_idx)
+                
+                # After each episode: reopen dataset to reset video encoder
+                # This ensures each episode starts with a fresh H.264 keyframe
+                is_last = (repeat_idx == self.repeat_count - 1) and (ep_idx_num == len(episodes) - 1)
+                
+                if not is_last and frames_recorded > 0:
+                    self._reopen_dataset_for_next_episode()
+                    self.get_logger().info('  ⏳ Waiting 2s before next episode... (safe to Ctrl+C here)')
+                    time.sleep(2.0)
+                elif frames_recorded > 0:
+                    # Last episode: just save without reopening
+                    self.vla_dataset.save_episode()
+                    self.get_logger().info(f'💾 Last episode saved: {frames_recorded} frames')
         
         # Finalize
         self.vla_dataset.finalize()
@@ -384,8 +497,110 @@ class LeRobotVLAReplayRecorder(Node):
         self.get_logger().info(f'   Total frames: {self.vla_dataset.num_frames}')
         self.get_logger().info('=' * 60)
     
-    def _process_episode(self, ep_df, episode_idx: int):
-        """Process a single episode: replay + record with absolute timing."""
+    def _wait_for_fresh_images(self, timeout: float = 2.0) -> bool:
+        """Wait for fresh images from all cameras before starting episode."""
+        self.get_logger().info('  Waiting for fresh camera images...')
+        
+        # Clear current images to force waiting for new ones
+        with self.image_lock:
+            for key in self.latest_images:
+                self.latest_images[key] = None
+            if hasattr(self, '_image_update_times'):
+                self._image_update_times.clear()
+        
+        start_wait = time.monotonic()
+        while time.monotonic() - start_wait < timeout:
+            # Let callbacks run
+            time.sleep(0.05)
+            
+            # Check if all images are available
+            current_images = self._get_current_images()
+            if all(img is not None for img in current_images.values()):
+                self.get_logger().info('  ✅ All cameras ready!')
+                return True
+        
+        # Check which cameras are missing
+        current_images = self._get_current_images()
+        missing = [k for k, v in current_images.items() if v is None]
+        self.get_logger().warn(f'  ⚠️ Timeout waiting for cameras: {missing}')
+        return False
+    
+    def _move_to_episode_start(self, ep_df, duration: float = 2.0):
+        """
+        Smoothly move robot to the first frame position of the episode.
+        
+        This prevents sudden jumps between episodes when their start positions differ.
+        Uses cubic interpolation for smooth motion.
+        """
+        # Get first frame's position
+        first_row = ep_df.iloc[0]
+        if 'observation.state' in first_row and first_row['observation.state'] is not None:
+            target_positions = np.array(first_row['observation.state'])
+        else:
+            target_positions = np.array(first_row['action'])
+        
+        # Get current position
+        current_positions = self._get_joint_positions()
+        if current_positions is None:
+            self.get_logger().warn('  Cannot get current position, skipping smooth move')
+            return
+        
+        # Check if we're already close enough (within 5 degrees = 0.087 rad)
+        max_diff = np.max(np.abs(target_positions - current_positions))
+        if max_diff < 0.087:
+            self.get_logger().info('  Already at episode start position')
+            return
+        
+        self.get_logger().info(f'  📍 Moving to episode start position ({duration}s)...')
+        
+        # Interpolation parameters
+        rate = 50.0  # Hz
+        dt = 1.0 / rate
+        total_steps = int(duration * rate)
+        
+        start_positions = current_positions.copy()
+        start_time = time.monotonic()
+        
+        for step in range(total_steps + 1):
+            if not rclpy.ok():
+                break
+            
+            # Cubic interpolation: s(t) = 3t² - 2t³
+            t = step / total_steps
+            s = 3 * t**2 - 2 * t**3
+            
+            # Interpolate
+            interp_positions = start_positions + s * (target_positions - start_positions)
+            
+            # Publish arm commands
+            self._publish_arm_command(self.left_gravity_comp_pub, interp_positions[:7])
+            self._publish_arm_command(self.right_gravity_comp_pub, interp_positions[8:15])
+            self._publish_gripper_command(self.left_gripper_pub, interp_positions[7])
+            self._publish_gripper_command(self.right_gripper_pub, interp_positions[15])
+            
+            # Maintain timing
+            target_time = start_time + step * dt
+            wait_time = target_time - time.monotonic()
+            if wait_time > 0:
+                time.sleep(wait_time)
+        
+        self.get_logger().info('  ✅ Reached episode start position')
+    
+    def _process_episode(self, ep_df, episode_idx: int) -> int:
+        """
+        Process a single episode: replay + record with absolute timing.
+        
+        Returns:
+            Number of frames recorded (0 if skipped)
+        """
+        # Wait for fresh images before starting each episode
+        if not self._wait_for_fresh_images(timeout=3.0):
+            self.get_logger().error(f'Skipping episode {episode_idx}: cameras not ready')
+            return 0
+        
+        # Move to episode start position smoothly (prevents sudden jumps)
+        self._move_to_episode_start(ep_df, duration=2.0)
+        
         # Use ORIGINAL trajectory fps for replay timing (not VLA record_rate)
         # This ensures the robot moves at the same speed as during recording
         trajectory_period = 1.0 / self.trajectory_fps
@@ -477,12 +692,16 @@ class LeRobotVLAReplayRecorder(Node):
                 self.get_logger().info(
                     f'  Frame {frame_idx}/{total_frames} | Timing drift: {drift_ms:+.1f}ms')
         
-        # Save episode
+        # Save episode (Note: save_episode is now called in _reopen_dataset_for_next_episode
+        # for all but the last episode. For the last episode, we save here.)
         if frames_recorded > 1:
-            self.vla_dataset.save_episode()
-            self.get_logger().info(f'💾 Episode saved: {frames_recorded} frames')
+            # Don't save here - let the caller handle it via _reopen_dataset_for_next_episode
+            # or finalize() for the last episode
+            self.get_logger().info(f'✅ Episode recorded: {frames_recorded} frames')
         else:
             self.get_logger().warn('Episode too short, skipping')
+        
+        return frames_recorded
 
 
 def main(args=None):

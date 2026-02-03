@@ -116,6 +116,11 @@ def generate_launch_description():
             default_value='3.0',
             description='Duration to move to initial position (seconds)'
         ),
+        DeclareLaunchArgument(
+            'repeat_count',
+            default_value='1',
+            description='Number of times to repeat trajectory for creating multiple VLA episodes'
+        ),
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
@@ -131,6 +136,7 @@ def generate_launch_description():
     resume = LaunchConfiguration('resume')
     enable_initial_move = LaunchConfiguration('enable_initial_move')
     initial_move_duration = LaunchConfiguration('initial_move_duration')
+    repeat_count = LaunchConfiguration('repeat_count')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
@@ -224,6 +230,7 @@ def generate_launch_description():
             'record_rate': record_rate,
             'task_description': task_description,
             'resume': resume,
+            'repeat_count': repeat_count,
         }],
     )
     

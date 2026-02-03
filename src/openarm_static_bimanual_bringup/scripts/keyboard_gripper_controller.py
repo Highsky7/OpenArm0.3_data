@@ -44,8 +44,8 @@ class KeyboardGripperController(Node):
         self.declare_parameter('publish_rate', 30.0)  # Hz (increased for smoother updates)
         # Gripper limits - extended range to handle motor zero offset
         # URDF says 0.0~1.57, but motor may have offset from calibration
-        self.declare_parameter('min_gripper', -0.5)   # Extended for motor offset
-        self.declare_parameter('max_gripper', 2.0)    # Extended for motor offset
+        self.declare_parameter('min_gripper', -0.05)   # Extended for motor offset
+        self.declare_parameter('max_gripper', 0.9)    # Extended for motor offset
         self.declare_parameter('left_joint_name', 'left_rev8')
         self.declare_parameter('right_joint_name', 'right_rev8')
         
