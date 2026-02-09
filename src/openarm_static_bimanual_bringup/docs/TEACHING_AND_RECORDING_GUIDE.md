@@ -11,10 +11,11 @@
 3. [데이터셋 관리 및 전략](#3-데이터셋-관리-및-전략)
 4. [Phase 1: Trajectory 녹화](#4-phase-1-trajectory-녹화)
 5. [Phase 2: VLA 데이터셋 생성](#5-phase-2-vla-데이터셋-생성)
-6. [Mock Hardware 테스트 가이드](#6-mock-hardware-테스트-가이드)
-7. [데이터셋 구조](#7-데이터셋-구조)
-8. [파라미터 레퍼런스](#8-파라미터-레퍼런스)
-9. [문제 해결](#9-문제-해결)
+6. [Demo용 코드 실행 (Trajectory Replay)](#6-demo용-코드-실행-trajectory-replay)
+7. [Mock Hardware 테스트 가이드](#7-mock-hardware-테스트-가이드)
+8. [데이터셋 구조](#8-데이터셋-구조)
+9. [파라미터 레퍼런스](#9-파라미터-레퍼런스)
+10. [문제 해결](#10-문제-해결)
 
 ---
 
@@ -260,7 +261,55 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
 
 ---
 
-## 6. Mock Hardware 테스트 가이드
+## 6. Demo용 코드 실행 (Trajectory Replay)
+
+Phase 1에서 녹화한 Trajectory 데이터셋을 카메라 녹화(Phase 2) 없이 단순히 로봇에서 **재생(Replay)**만 하고 싶을 때 사용합니다. 데모 시연이나 데이터 확인 용도로 유용합니다.
+
+### 특징
+
+- 카메라/VLA 데이터셋 생성 없이 **순수 로봇 모션만 재생**
+- LeRobot 데이터셋 포맷(`observation.state`) 지원
+- `gravity_comp_node` 위에서 동작하여 안전함
+
+### 실행 방법
+
+**Terminal 1: 로봇 기본 실행**
+
+```bash
+ros2 launch openarm_static_bimanual_bringup sbopenarm.launch.py use_grippers:=true
+```
+
+**Terminal 2: 중력 보상 노드 실행**
+
+```bash
+# Replay 모드 활성화 (외부 명령 수신 대기)
+ros2 run openarm_static_bimanual_bringup gravity_comp_node.py --ros-args -p enable_replay_mode:=true
+```
+
+**Terminal 3: Replay 실행**
+
+```bash
+# 예시: 'pick_red_cube' 데이터셋 재생
+ros2 run openarm_static_bimanual_bringup simple_state_replay.py \
+    --ros-args \
+    -p dataset_path:=~/lerobot_datasets/pick_red_cube \
+    -p playback_speed:=1.0 \
+    -p loop:=false
+```
+
+### 주요 파라미터
+
+| 파라미터 | 설명 |
+| :--- | :--- |
+| `dataset_path` | 재생할 Trajectory 데이터셋 경로 (필수) |
+| `episode_index` | 특정 에피소드만 재생 (`-1`: 전체 순차 재생) |
+| `playback_speed` | 재생 속도 배율 (기본 `1.0`) |
+| `loop` | `true`: 무한 반복 재생 / `false`: 1회 재생 후 종료 |
+| `start_delay` | 시작 전 대기 시간 (초), 기본 `3.0` |
+
+---
+
+## 7. Mock Hardware 테스트 가이드
 
 실제 로봇/카메라 없이 워크플로우를 검증할 때 사용합니다.
 
@@ -296,7 +345,7 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
 
 ---
 
-## 7. 데이터셋 구조
+## 8. 데이터셋 구조
 
 ### Phase 1: Trajectory
 
@@ -316,7 +365,7 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
 
 ---
 
-## 8. 파라미터 레퍼런스
+## 9. 파라미터 레퍼런스
 
 ### `lerobot_trajectory_recorder.py` (Phase 1)
 
@@ -344,7 +393,7 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
 
 ---
 
-## 9. 문제 해결
+## 10. 문제 해결
 
 ### Resume가 작동하지 않음 (새로 덮어씌워짐)
 
