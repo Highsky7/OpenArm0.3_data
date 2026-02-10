@@ -63,7 +63,7 @@ def generate_launch_description():
     
     safety_velocity_limit_arg = DeclareLaunchArgument(
         'safety_velocity_limit',
-        default_value='0.5',
+        default_value='1.0',
         description='Maximum joint velocity in rad/s for safety limiting'
     )
     

@@ -58,16 +58,18 @@ lerobot-train \
   --policy.path=lerobot/smolvla_base \
   --dataset.repo_id=openarm_vla \
   --dataset.root=/home/highsky/openarm_vla \
-  --policy.input_features.observation.state.shape='[16]' \
-  --policy.output_features.action.shape='[16]' \
-  --rename_map='{"observation.images.top": "observation.images.camera1", "observation.images.wrist_left": "observation.images.camera2", "observation.images.wrist_right": "observation.images.camera3"}' \
-  --batch_size=4 \
-  --steps=20000 \
-  --output_dir=outputs/train/smolvla_openarm_16dim \
+  "--policy.input_features={\"observation.state\": {\"type\": \"STATE\", \"shape\": [16]}, \"observation.images.camera1\": {\"type\": \"VISUAL\", \"shape\": [3, 256, 256]}, \"observation.images.camera2\": {\"type\": \"VISUAL\", \"shape\": [3, 256, 256]}, \"observation.images.camera3\": {\"type\": \"VISUAL\", \"shape\": [3, 256, 256]}}" \
+  "--policy.output_features={\"action\": {\"type\": \"ACTION\", \"shape\": [16]}}" \
+  --rename_map="{\"observation.images.top\": \"observation.images.camera1\", \"observation.images.wrist_left\": \"observation.images.camera2\", \"observation.images.wrist_right\": \"observation.images.camera3\"}" \
+  --batch_size=16 \
+  --gradient_accumulation_steps=8 \
+  --steps=45000 \
+  --output_dir=outputs/train/smolvla_openarm600 \
   --job_name=smolvla_openarm_16dim_training \
   --policy.device=cuda \
-  --policy.push_to_hub=false \
-  --wandb.enable=true
+  --wandb.enable=true \
+  --save_freq=5000 \
+  --policy.push_to_hub=false
 ```
 
 > [!IMPORTANT]
@@ -172,8 +174,10 @@ ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
 Gravity compensation 모드 활성화 후:
 
 ```bash
-# 터미널 1: Gravity compensation 및 로봇 드라이버 실행
-ros2 launch openarm_bimanual_bringup gravity_comp.launch.py
+# 터미널 1: 로봇 하드웨어 및 중력 보상 실행 (Replay Mode)
+ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py \
+    active_arms:=both \
+    enable_replay_mode:=true
 
 # 터미널 2: SmolVLA 추론 실행 (양팔 제어)
 ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
@@ -297,12 +301,12 @@ ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.
     enable_replay_mode:=true
 ```
 
-| 주요 파라미터 | 기본값 | 설명 |
-|---------------|--------|------|
-| `enable_replay_mode` | false | 외부 제어 명령 수신 활성화 (추론 시 **true 필수**) |
-| `enable_initial_move` | true | 시작 시 초기 위치로 자동 이동 |
-| `initial_move_duration` | 3.0 | 초기 위치 이동 시간 (초) |
-| `active_arms` | both | 제어할 팔 선택 |
+| 주요 파라미터             | 기본값 | 설명                                                    |
+| ------------------------- | ------ | ------------------------------------------------------- |
+| `enable_replay_mode`    | false  | 외부 제어 명령 수신 활성화 (추론 시**true 필수**) |
+| `enable_initial_move`   | true   | 시작 시 초기 위치로 자동 이동                           |
+| `initial_move_duration` | 3.0    | 초기 위치 이동 시간 (초)                                |
+| `active_arms`           | both   | 제어할 팔 선택                                          |
 
 ### 터미널 2: SmolVLA 추론 실행
 
@@ -334,11 +338,12 @@ ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
 ### 문제 해결 (Troubleshooting)
 
 - **로봇이 움직이지 않음:**
+
   - 터미널 1에서 `enable_replay_mode:=true`가 설정되었는지 확인하세요.
   - 터미널 2에서 `enable_control:=true`인지 확인하세요.
   - 별도의 터미널에서 `ros2 topic echo /gravity_comp/left_external_position_cmd`를 실행하여 추론 노드가 명령을 발행하고 있는지 확인하세요.
-
 - **"Dimension mismatch" 오류:**
+
   - `policy_path`가 올바른 16차원 모델을 가리키는지 확인하세요.
 
 ## 📐 체크포인트 검증 스크립트

@@ -336,6 +336,10 @@ class SmolVLAInferenceNode(Node):
         Prepare observation dictionary for policy inference.
         
         Returns None if sensors are not ready.
+        
+        Image format conversion:
+            - Input: HWC uint8 (256, 256, 3) from OpenCV
+            - Output: BCHW float32 (1, 3, 256, 256) normalized to [0, 1]
         """
         # Get current images
         images = self._get_current_images()
@@ -348,16 +352,27 @@ class SmolVLAInferenceNode(Node):
         if state is None:
             return None
         
-        # Build observation dict (matching the preprocessor expectation)
-        # The preprocessor will rename these keys and handle normalization
+        # Build observation dict
         observation = {
-            'observation.state': state,  # 16-dim state vector
             'task': self.current_task,   # Task description
         }
         
-        # Add images (HWC format, uint8 -> will be converted by preprocessor)
+        # Convert state to tensor with batch dimension
+        # Shape: (16,) -> (1, 16)
+        state_tensor = torch.from_numpy(state).unsqueeze(0).to(self.device)
+        observation['observation.state'] = state_tensor
+        
+        # Convert images: HWC uint8 -> BCHW float32 normalized
+        # The policy expects: (batch, channels, height, width) with values in [0, 1]
         for key, img in images.items():
-            observation[key] = img
+            # img shape: (256, 256, 3) HWC uint8
+            # Step 1: HWC -> CHW
+            img_chw = np.transpose(img, (2, 0, 1))  # (3, 256, 256)
+            # Step 2: numpy -> torch tensor, normalize to [0, 1]
+            img_tensor = torch.from_numpy(img_chw.astype(np.float32) / 255.0)
+            # Step 3: Add batch dimension -> (1, 3, 256, 256)
+            img_tensor = img_tensor.unsqueeze(0).to(self.device)
+            observation[key] = img_tensor
         
         return observation
     

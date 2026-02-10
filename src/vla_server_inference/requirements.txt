@@ -1,0 +1,22 @@
+# VLA Inference Server Dependencies
+# 서버에서 pip install -r requirements.txt 로 설치
+
+# Core ML
+torch>=2.0.0
+torchvision>=0.15.0
+
+# ZeroMQ 통신
+pyzmq>=25.0.0
+msgpack>=1.0.0
+
+# 데이터 처리
+numpy>=1.24.0
+opencv-python>=4.8.0
+pillow>=9.0.0
+
+# LeRobot (SmolVLA 포함)
+lerobot==0.4.3
+
+# 선택적: 디버깅
+# ipython
+# rich
