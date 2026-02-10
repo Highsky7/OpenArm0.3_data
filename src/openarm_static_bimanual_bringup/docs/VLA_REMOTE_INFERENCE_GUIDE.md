@@ -140,11 +140,12 @@ ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
 
 **taks_description list**
 
-- "Move the basket to the right side and put the paper roll in the basket" (dataset name: moving_basket)
-- "Put the umbrellas into the basket" (dataset name: putting_umbrellas)
-- "Move the Rubik's Cube on the right end to the left end using both arms" (dataset name: moving_cube)
-- "Move the yellow cube on the center of desk and stack the black cube on the yellow cube" (dataset name: stacking_cubes)
-- "Stack the paper boxes on the desk" (dataset name: stacking_boxes)
+> - "Move the basket to the right side and put the paper roll into the basket" (dataset name: moving_basket)
+> - "Put the umbrellas into the basket" (dataset name: putting_umbrellas)
+> - "Move the Rubik's Cube on the right end to the left end using both arms" (dataset name: moving_cube)
+> - "Put the brown cup into the basket and put the green cup on the plate" (dataset name: putting_cups)
+> - "Open the first floor of the drawer and put the steel cup into the opened floor" (dataset name: opening_drawer)
+> - "Pass the orange wine glass to the left arm to put the orange wine glass into the basket" (dataset name: passing_wine)
 
 ---
 
