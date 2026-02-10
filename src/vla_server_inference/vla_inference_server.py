@@ -177,7 +177,8 @@ class VLAInferenceServer:
         # images 딕셔너리는 이미 'observation.images.cameraX' 형태의 키를 가짐
         for key, img_array in images.items():
             # numpy (H, W, C) -> torch (C, H, W)
-            img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).float() / 255.0
+            # Make copy to ensure writable memory (fixes UserWarning)
+            img_tensor = torch.from_numpy(img_array.copy()).permute(2, 0, 1).float() / 255.0
             # 배치 차원 추가: (1, C, H, W)
             img_tensor = img_tensor.unsqueeze(0).to(self.device)
             # 관측값에 추가 (키 그대로 사용)
