@@ -123,13 +123,29 @@ class VLAInferenceServer:
         
         # 이미지 복원 (bytes → numpy array)
         images = {}
-        for key, img_bytes in data.get('images', {}).items():
-            img_array = np.frombuffer(img_bytes, dtype=np.uint8)
-            img_array = img_array.reshape(self.image_size, self.image_size, 3)
-            images[key] = img_array
+        # flat key 구조 처리 (observation.images.camera1 등)
+        for key, value in data.items():
+            if key.startswith('observation.images.'):
+                img_bytes = value
+                img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+                img_array = img_array.reshape(self.image_size, self.image_size, 3)
+                images[key] = img_array
+        
+        # 이전 'images' 중첩 구조도 하위 호환성을 위해 유지 (선택사항)
+        if 'images' in data:
+            for key, img_bytes in data['images'].items():
+                img_array = np.frombuffer(img_bytes, dtype=np.uint8)
+                img_array = img_array.reshape(self.image_size, self.image_size, 3)
+                # 만약 key가 observation.images.로 시작하지 않으면 붙여줌 (기존 로직 호환)
+                full_key = key if key.startswith('observation.images.') else f'observation.images.{key}'
+                images[full_key] = img_array
         
         # 상태 벡터
-        state = np.array(data.get('state', []), dtype=np.float32)
+        # observation.state 키로 직접 들어올 수도 있고, 'state' 키로 들어올 수도 있음
+        if 'observation.state' in data:
+            state = np.array(data['observation.state'], dtype=np.float32)
+        else:
+            state = np.array(data.get('state', []), dtype=np.float32)
         
         # 태스크 설명
         task = data.get('task', 'manipulation task')
@@ -158,20 +174,14 @@ class VLAInferenceServer:
         }
         
         # 2. 이미지 처리: (H, W, C) -> (1, C, H, W) Tensor + 0-1 정규화
-        camera_mapping = {
-            'top': 'observation.images.top',
-            'wrist_left': 'observation.images.wrist_left',
-            'wrist_right': 'observation.images.wrist_right',
-        }
-        
-        for src_key, dst_key in camera_mapping.items():
-            if src_key in images:
-                # numpy (H, W, C) -> torch (C, H, W)
-                img_array = images[src_key]
-                img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).float() / 255.0
-                # 배치 차원 추가: (1, C, H, W)
-                img_tensor = img_tensor.unsqueeze(0).to(self.device)
-                observation[dst_key] = img_tensor
+        # images 딕셔너리는 이미 'observation.images.cameraX' 형태의 키를 가짐
+        for key, img_array in images.items():
+            # numpy (H, W, C) -> torch (C, H, W)
+            img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).float() / 255.0
+            # 배치 차원 추가: (1, C, H, W)
+            img_tensor = img_tensor.unsqueeze(0).to(self.device)
+            # 관측값에 추가 (키 그대로 사용)
+            observation[key] = img_tensor
         
         # 전처리 (이미 배치화된 Tensor가 들어옴)
         # 주의: LeRobot의 preprocessor는 데이터셋 아이템(dict)을 기대할 수도 있음

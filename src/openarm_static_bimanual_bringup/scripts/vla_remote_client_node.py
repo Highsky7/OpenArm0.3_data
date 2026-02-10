@@ -34,10 +34,11 @@ class VLARemoteClientNode(Node):
     """VLA 원격 추론 클라이언트 노드"""
     
     # 카메라 토픽 설정
+    # Keys chosen to match server-side expected image feature names
     CAMERA_TOPICS = {
-        'top': '/camera/cam_1/color/image_raw/compressed',
-        'wrist_left': '/camera/cam_2/color/image_raw/compressed',
-        'wrist_right': '/camera/cam_3/color/image_raw/compressed',
+        'camera1': '/camera/cam_1/color/image_raw/compressed',
+        'camera2': '/camera/cam_2/color/image_raw/compressed',
+        'camera3': '/camera/cam_3/color/image_raw/compressed',
     }
     
     # 16-DOF 조인트 이름 (left 8 + right 8)
@@ -244,12 +245,14 @@ class VLARemoteClientNode(Node):
             return
         
         try:
-            # 요청 데이터 구성
+            # 요청 데이터 구성: 서버가 기대하는 키 구조로 전송
+            # 서버는 'observation.state' 및 'observation.images.<camera>' 키를 기대합니다.
             request = {
-                'images': images_bytes,
-                'state': state.tolist(),
+                'observation.state': state.tolist(),
                 'task': self.task_description,
             }
+            for k, v in images_bytes.items():
+                request[f'observation.images.{k}'] = v
             
             # 전송
             start_time = time.time()
