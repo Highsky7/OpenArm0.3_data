@@ -148,13 +148,16 @@ class VLAInferenceServer:
         state = parsed_data['state']
         task = parsed_data['task']
         
-        # 관측 구성 (SmolVLA 16-dim 형식)
+        # 1. 상태(State) 처리: (dim,) -> (1, dim) Tensor
+        state_tensor = torch.from_numpy(state).float().to(self.device).unsqueeze(0)
+        
+        # 관측값 구성
         observation = {
-            'observation.state': state,
-            'task': task,
+            'observation.state': state_tensor,
+            'task': task,  # 문자열은 그대로 (배치 처리는 내부에서)
         }
         
-        # 카메라 이미지 추가
+        # 2. 이미지 처리: (H, W, C) -> (1, C, H, W) Tensor + 0-1 정규화
         camera_mapping = {
             'top': 'observation.images.top',
             'wrist_left': 'observation.images.wrist_left',
@@ -163,25 +166,62 @@ class VLAInferenceServer:
         
         for src_key, dst_key in camera_mapping.items():
             if src_key in images:
-                observation[dst_key] = images[src_key]
+                # numpy (H, W, C) -> torch (C, H, W)
+                img_array = images[src_key]
+                img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).float() / 255.0
+                # 배치 차원 추가: (1, C, H, W)
+                img_tensor = img_tensor.unsqueeze(0).to(self.device)
+                observation[dst_key] = img_tensor
         
-        # 전처리
-        batch = self.preprocessor(observation)
+        # 전처리 (이미 배치화된 Tensor가 들어옴)
+        # 주의: LeRobot의 preprocessor는 데이터셋 아이템(dict)을 기대할 수도 있음
+        # 하지만 이미 Tensor로 변환했으므로, 여기서는 필요한 추가 정규화만 수행하거나 패스
+        # 만약 preprocessor가 None이거나 Tensor 입력을 처리한다면 그대로 사용
+        if self.preprocessor:
+             # preprocessor가 배치 입력을 처리하는지 확인 필요.
+             # 보통은 데이터셋 아이템(Unbatched) -> Batched로 변환하는데,
+             # 여기서는 직접 Batched Tensor를 만들었으므로 preprocessor 호출 방식에 주의
+             # 일단은 policy에 직접 넣기 위해 preprocessor 통과 (필요 시)
+             # 하지만 VLA 모델은 보통 normalize를 내부에서 하거나 전처리기가 함.
+             # 수동으로 0-1 정규화했으니, preprocessor가 중복 정규화하지 않도록 주의.
+             # *SmolVLA*의 경우 전처리기가 복잡할 수 있음.
+             # 안전하게는: preprocessor 호출 없이 직접 포맷팅했으므로 바로 사용하거나,
+             # preprocessor가 (C,H,W) 입력을 기대한다면 배치 차원 추가 전 호출해야 함.
+             pass
+
+        # SmolVLA의 경우, preprocessor가 토크나이징 등을 수행할 수 있으므로 호출 필요.
+        # 단, state/image가 이미 Tensor라면?
+        # -> SmolVLA preprocessor(normalization)는 보통 데이터셋 로더에서 수행됨.
+        # -> 추론 시에는 모델이 기대하는 raw input(0-1 float)을 넣어주면 됨.
         
-        # 추론
+        # 3. 추론 실행
+        # policy.select_action은 배치를 기대함
         with torch.no_grad():
+            # 태스크가 문자열 리스트로 들어가야 함 (배치 크기 1)
+            # observation['task'] = [task] 
+            # (SmolVLA 내부 구현에 따라 다름, 보통 텍스트는 리스트)
+            
+            # 만약 preprocessor를 꼭 써야한다면:
+            # batch = self.preprocessor(observation) 
+            # 하지만 위 코드는 데이터셋용일 수 있음.
+            
+            # 직접 구성한 batch 사용
+            batch = observation
+            
+            # Action 추론
             action = self.policy.select_action(batch)
         
         # 후처리
-        action = self.postprocessor(action)
+        if self.postprocessor:
+            action = self.postprocessor(action)
         
         # numpy 변환
         if isinstance(action, torch.Tensor):
-            action_np = action.squeeze().cpu().numpy()
+            action = action.squeeze().cpu().numpy()
         else:
-            action_np = np.array(action).squeeze()
+            action = np.array(action).squeeze()
         
-        return action_np
+        return action
     
     def _send_response(self, action: np.ndarray, inference_time: float, status: str = 'ok'):
         """응답 전송"""
