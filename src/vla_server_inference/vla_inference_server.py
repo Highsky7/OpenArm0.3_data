@@ -87,8 +87,8 @@ class VLAInferenceServer:
                 from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
                 self.policy = SmolVLAPolicy.from_pretrained(policy_path)
             elif self.model_type == 'pi0':
-                from lerobot.policies.pi0.modeling_pi0 import Pi0Policy
-                self.policy = Pi0Policy.from_pretrained(policy_path)
+                from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+                self.policy = PI0Policy.from_pretrained(policy_path)
             else:
                 raise ValueError(f"지원하지 않는 모델 타입: {self.model_type}")
             self.policy.to(self.device)
