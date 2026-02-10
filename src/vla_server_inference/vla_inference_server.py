@@ -93,8 +93,10 @@ class VLAInferenceServer:
             
             print(f"✅ 정책 로드 완료!")
             print(f"   디바이스: {self.device}")
-            print(f"   State dim: {self.policy.config.input_shapes.get('observation.state', 'N/A')}")
-            print(f"   Action dim: {self.policy.config.output_shapes.get('action', 'N/A')}")
+            input_shapes = getattr(self.policy.config, 'input_shapes', {})
+            output_shapes = getattr(self.policy.config, 'output_shapes', {})
+            print(f"   State dim: {input_shapes.get('observation.state', 'N/A')}")
+            print(f"   Action dim: {output_shapes.get('action', 'N/A')}")
             
         except ImportError as e:
             print(f"❌ LeRobot 패키지 임포트 실패: {e}")
