@@ -65,7 +65,7 @@ cd ~/OpenArm0.3_data/src/vla_server_inference
 # 방법 2: Python 직접 실행
 conda activate vla_server
 python vla_inference_server.py \
-    --policy_path ~/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
+    --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
     --port 5555 \
     --debug
 ```
