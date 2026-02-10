@@ -7,15 +7,15 @@
 
 ## 📋 개요
 
-이 가이드는 SSH 터널을 통해 원격 GPU 서버에서 VLA(SmolVLA) 모델 추론을 수행하고,
+이 가이드는 SSH 터널을 통해 원격 GPU 서버에서 VLA(SmolVLA 또는 Pi0) 모델 추론을 수행하고,
 그 결과를 로봇 laptop으로 전달하여 실시간 로봇 제어를 가능하게 하는 방법을 설명합니다.
 
 ```
 ┌─────────────────┐    SSH 터널 (ZeroMQ)    ┌─────────────────┐
 │   로봇 Laptop   │ ──────────────────────▶ │   GPU 서버      │
 │                 │   이미지 + 상태 전송    │                 │
-│   ROS2 노드     │ ◀────────────────────── │   SmolVLA 추론  │
-│   로봇 제어     │   16-dim 액션 수신      │   ZeroMQ 서버   │
+│   ROS2 노드     │ ◀────────────────────── │   VLA 추론      │
+│   로봇 제어     │   16-dim 액션 수신      │   (SmolVLA/Pi0) │
 └─────────────────┘                         └─────────────────┘
 ```
 
@@ -60,13 +60,19 @@ ls ~/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/pretrained_model/
 ```bash
 # 방법 1: start_server.sh 스크립트 사용 (권장)
 cd ~/OpenArm0.3_data/src/vla_server_inference
-./start_server.sh /datastore/khdw/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model --debug
+
+# SmolVLA 실행 (기본값)
+./start_server.sh /path/to/smolvla_checkpoint
+
+# Pi0 실행 (MODEL_TYPE 환경변수 설정)
+MODEL_TYPE=pi0 ./start_server.sh /path/to/pi0_checkpoint --debug
 
 # 방법 2: Python 직접 실행
 conda activate vla_server
 python vla_inference_server.py \
-    --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
+    --policy_path /path/to/checkpoint \
     --port 5555 \
+    --model_type pi0 \
     --debug
 ```
 
@@ -74,7 +80,7 @@ python vla_inference_server.py \
 
 ```
 ============================================================
-  🤖 VLA Inference Server - SmolVLA
+  🤖 VLA Inference Server - smolvla (or pi0)
 ============================================================
   ✅ 서버 준비 완료! 클라이언트 연결 대기 중...
 ```
