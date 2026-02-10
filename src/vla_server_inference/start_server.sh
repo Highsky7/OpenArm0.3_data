@@ -14,8 +14,8 @@ echo -e "${GREEN}======================================${NC}"
 
 # 기본 설정
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECKPOINT_DIR="${HOME}/OpenArm0.3_data/checkpoints"
-DEFAULT_POLICY_PATH="${CHECKPOINT_DIR}/smolvla_openarm_16dim//020000/pretrained_model"
+CHECKPOINT_DIR="/datastore/khdw/OpenArm0.3_data/checkpoints"
+DEFAULT_POLICY_PATH="${CHECKPOINT_DIR}/smolvla_openarm_16dim/020000/pretrained_model"
 PORT="${PORT:-5555}"
 DEBUG="${DEBUG:-false}"
 
