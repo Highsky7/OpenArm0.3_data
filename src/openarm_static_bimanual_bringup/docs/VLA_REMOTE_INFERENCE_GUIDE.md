@@ -113,13 +113,13 @@ ssh -fN -L 5555:localhost:5555 dongwoo@163.152.193.246
 
 ```bash
 # 터미널 1: 로봇 하드웨어 및 초기화 (Step 3 trajectory recording 환경)
-ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py enable_replay:=true
+ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py enable_replay_mode:=true
 
 # 터미널 2: 카메라 실행
 ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
-    cam_1_serial_no:=317322073024 \
-    cam_2_serial_no:=326522073051 \
-    cam_3_serial_no:=327322071339
+    serial_no1:="'_317322073024'" \
+    serial_no2:="'_326522073051'" \
+    serial_no3:="'_327322071339'"
 ```
 
 ---
