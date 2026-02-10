@@ -60,7 +60,7 @@ ls ~/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/pretrained_model/
 ```bash
 # 방법 1: start_server.sh 스크립트 사용 (권장)
 cd ~/OpenArm0.3_data/src/vla_server_inference
-./start_server.sh --debug
+./start_server.sh /datastore/khdw/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model --debug
 
 # 방법 2: Python 직접 실행
 conda activate vla_server
@@ -85,10 +85,12 @@ python vla_inference_server.py \
 
 ```bash
 # SSH 포트 포워딩 (새 터미널에서 실행)
-ssh -L 5555:localhost:5555 user@서버IP
+# user@서버IP: 원격 GPU 서버의 계정과 IP를 입력해야 합니다. (로봇 노트북 계정 아님!)
+# 예: ssh -L 5555:localhost:5555 dongwoo@163.152.193.246(0번 server)
+ssh -L 5555:localhost:5555 dongwoo@163.152.193.246
 
 # 또는 백그라운드 모드
-ssh -fN -L 5555:localhost:5555 user@서버IP
+ssh -fN -L 5555:localhost:5555 dongwoo@163.152.193.246
 ```
 
 > ⚠️ **중요**: SSH 터널은 VLA 추론 동안 유지되어야 합니다. `Ctrl+C`로 종료하면 연결이 끊어집니다.
