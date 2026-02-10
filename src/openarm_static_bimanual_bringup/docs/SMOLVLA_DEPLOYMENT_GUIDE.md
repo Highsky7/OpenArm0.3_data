@@ -153,7 +153,7 @@ source install/setup.bash
 
 ```bash
 ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
-    policy_path:=/home/robot/smolvla_checkpoint \
+    policy_path:=/home/mintlabskh/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
     task_description:="pick up the object" \
     enable_control:=false
 ```
@@ -181,7 +181,7 @@ ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.
 
 # 터미널 2: SmolVLA 추론 실행 (양팔 제어)
 ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
-    policy_path:=/home/robot/smolvla_checkpoint \
+    policy_path:=/home/mintlabskh/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
     task_description:="pick up the red block" \
     enable_control:=true \
     control_arm:=both

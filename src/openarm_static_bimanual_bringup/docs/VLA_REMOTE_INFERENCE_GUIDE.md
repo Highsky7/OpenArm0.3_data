@@ -1,6 +1,6 @@
 # VLA 원격 추론 가이드 (VLA Remote Inference Guide)
 
-> 📅 작성일: 2026-02-09  
+> 📅 작성일: 2026-02-09
 > 🎯 목적: 로봇 laptop과 원격 GPU 서버 간 VLA 추론 통신 설정 및 실행
 
 ---
@@ -65,12 +65,13 @@ cd ~/OpenArm0.3_data/src/vla_server_inference
 # 방법 2: Python 직접 실행
 conda activate vla_server
 python vla_inference_server.py \
-    --policy_path ~/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/pretrained_model \
+    --policy_path ~/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
     --port 5555 \
     --debug
 ```
 
 서버가 정상 실행되면 다음과 같은 메시지가 표시됩니다:
+
 ```
 ============================================================
   🤖 VLA Inference Server - SmolVLA
@@ -117,7 +118,7 @@ ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
 
 ```bash
 ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
-    task_description:="place the cup on the plate" \
+    task_description:="Move the basket to the right side and put the paper roll in the basket" \
     enable_control:=false \
     debug:=true
 ```
@@ -126,23 +127,31 @@ ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
 
 ```bash
 ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
-    task_description:="place the cup on the plate" \
+    task_description:="Move the basket to the right side and put the paper roll in the basket" \
     enable_control:=true \
     debug:=true
 ```
+
+**taks_description list**
+
+- "Move the basket to the right side and put the paper roll in the basket" (dataset name: moving_basket)
+- "Put the umbrellas into the basket" (dataset name: putting_umbrellas)
+- "Move the Rubik's Cube on the right end to the left end using both arms" (dataset name: moving_cube)
+- "Move the yellow cube on the center of desk and stack the black cube on the yellow cube" (dataset name: stacking_cubes)
+- "Stack the paper boxes on the desk" (dataset name: stacking_boxes)
 
 ---
 
 ## 📊 파라미터 설명
 
-| 파라미터 | 기본값 | 설명 |
-|---------|-------|------|
-| `server_port` | 5555 | ZeroMQ 서버 포트 (SSH 터널 로컬 포트) |
-| `inference_rate` | 10.0 | 추론 요청 주기 (Hz) |
-| `enable_control` | false | 로봇 제어 활성화 여부 |
-| `task_description` | "manipulation task" | VLA 모델에 전달할 태스크 설명 |
-| `debug` | true | 디버그 로그 출력 |
-| `timeout_ms` | 5000 | 서버 응답 타임아웃 (ms) |
+| 파라미터             | 기본값              | 설명                                  |
+| -------------------- | ------------------- | ------------------------------------- |
+| `server_port`      | 5555                | ZeroMQ 서버 포트 (SSH 터널 로컬 포트) |
+| `inference_rate`   | 10.0                | 추론 요청 주기 (Hz)                   |
+| `enable_control`   | false               | 로봇 제어 활성화 여부                 |
+| `task_description` | "manipulation task" | VLA 모델에 전달할 태스크 설명         |
+| `debug`            | true                | 디버그 로그 출력                      |
+| `timeout_ms`       | 5000                | 서버 응답 타임아웃 (ms)               |
 
 ---
 
