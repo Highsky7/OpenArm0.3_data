@@ -51,8 +51,9 @@ class VLARemoteClientNode(Node):
     ]
     
     # 제어 토픽
-    LEFT_ARM_TOPIC = '/left_arm_controller/commands'
-    RIGHT_ARM_TOPIC = '/right_arm_controller/commands'
+    # 제어 토픽 (Local Node와 동일하게 설정)
+    LEFT_ARM_TOPIC = '/gravity_comp/left_external_position_cmd'
+    RIGHT_ARM_TOPIC = '/gravity_comp/right_external_position_cmd'
     LEFT_GRIPPER_TOPIC = '/left_gripper_controller/commands'
     RIGHT_GRIPPER_TOPIC = '/right_gripper_controller/commands'
     
@@ -107,8 +108,8 @@ class VLARemoteClientNode(Node):
     
     def _setup_zmq(self):
         """ZeroMQ REQ 소켓 설정"""
-        self.context = zmq.Context()
-        self.socket = self.context.socket(zmq.REQ)
+        self.zmq_context = zmq.Context()
+        self.socket = self.zmq_context.socket(zmq.REQ)
         self.socket.setsockopt(zmq.RCVTIMEO, self.timeout_ms)  # 수신 타임아웃
         self.socket.setsockopt(zmq.SNDTIMEO, self.timeout_ms)  # 송신 타임아웃
         self.socket.connect(f"tcp://localhost:{self.server_port}")
@@ -310,7 +311,7 @@ class VLARemoteClientNode(Node):
         """ZeroMQ 재연결"""
         try:
             self.socket.close()
-            self.socket = self.context.socket(zmq.REQ)
+            self.socket = self.zmq_context.socket(zmq.REQ)
             self.socket.setsockopt(zmq.RCVTIMEO, self.timeout_ms)
             self.socket.setsockopt(zmq.SNDTIMEO, self.timeout_ms)
             self.socket.connect(f"tcp://localhost:{self.server_port}")
@@ -328,6 +329,10 @@ class VLARemoteClientNode(Node):
             [8:15] - right arm (rev1~rev7)
             [15]   - right gripper (rev8)
         """
+        # 디버그: 액션 적용 로그
+        if self.debug:
+            self.get_logger().info(f'🤖 액션 적용: {action[:4]}...')
+
         # Left arm (indices 0-6, 7개 조인트)
         left_arm_msg = Float64MultiArray()
         left_arm_msg.data = [float(p) for p in action[0:7]]
@@ -358,7 +363,7 @@ class VLARemoteClientNode(Node):
         """노드 종료 시 정리"""
         self.get_logger().info('🧹 VLA Remote Client 종료 중...')
         self.socket.close()
-        self.context.term()
+        self.zmq_context.term()
         super().destroy_node()
 
 
