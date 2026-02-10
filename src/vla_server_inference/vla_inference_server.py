@@ -31,21 +31,24 @@ class VLAInferenceServer:
     
     def __init__(
         self,
-        policy_path: str,
+            policy_path: str,
         port: int = 5555,
         device: str = 'cuda',
-        image_size: int = 256
+        image_size: int = 256,
+        model_type: str = 'smolvla'
     ):
         """
         Args:
-            policy_path: SmolVLA 체크포인트 경로
+            policy_path: 모델 체크포인트 경로
             port: ZeroMQ 서버 포트 (localhost에서만 바인딩)
             device: GPU 디바이스 ('cuda' 또는 'cuda:0' 등)
             image_size: 입력 이미지 크기 (기본값 256x256)
+            model_type: 모델 타입 ('smolvla' 또는 'pi0')
         """
         self.device = device
         self.port = port
         self.image_size = image_size
+        self.model_type = model_type
         self.policy = None
         self.preprocessor = None
         self.postprocessor = None
@@ -71,17 +74,23 @@ class VLAInferenceServer:
         print(f"🔌 ZeroMQ REP 소켓 바인딩: tcp://localhost:{self.port}")
     
     def _load_policy(self, policy_path: str):
-        """SmolVLA 정책 로드"""
-        print(f"\n🔄 SmolVLA 정책 로딩 중...")
+        """모델 정책 로드"""
+        print(f"\n🔄 {self.model_type} 정책 로딩 중...")
         print(f"   경로: {policy_path}")
         
         try:
             import torch
-            from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
             from lerobot.policies.factory import make_pre_post_processors
             
             # 정책 로드
-            self.policy = SmolVLAPolicy.from_pretrained(policy_path)
+            if self.model_type == 'smolvla':
+                from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy
+                self.policy = SmolVLAPolicy.from_pretrained(policy_path)
+            elif self.model_type == 'pi0':
+                from lerobot.policies.pi0.modeling_pi0 import Pi0Policy
+                self.policy = Pi0Policy.from_pretrained(policy_path)
+            else:
+                raise ValueError(f"지원하지 않는 모델 타입: {self.model_type}")
             self.policy.to(self.device)
             self.policy.eval()
             
@@ -334,6 +343,13 @@ def main():
         action='store_true',
         help='디버그 모드 활성화 (상세 로그 출력)'
     )
+    parser.add_argument(
+        '--model_type',
+        type=str,
+        default='smolvla',
+        choices=['smolvla', 'pi0'],
+        help="모델 타입 선택: 'smolvla' 또는 'pi0' (기본값: smolvla)"
+    )
     
     args = parser.parse_args()
     
@@ -342,7 +358,8 @@ def main():
         policy_path=args.policy_path,
         port=args.port,
         device=args.device,
-        image_size=args.image_size
+        image_size=args.image_size,
+        model_type=args.model_type
     )
     
     server.run(debug=args.debug)

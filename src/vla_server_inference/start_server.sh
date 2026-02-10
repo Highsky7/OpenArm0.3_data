@@ -18,9 +18,27 @@ CHECKPOINT_DIR="/datastore/khdw/OpenArm0.3_data/checkpoints"
 DEFAULT_POLICY_PATH="${CHECKPOINT_DIR}/smolvla_openarm_16dim/020000/pretrained_model"
 PORT="${PORT:-5555}"
 DEBUG="${DEBUG:-false}"
+MODEL_TYPE="${MODEL_TYPE:-smolvla}"
 
 # 체크포인트 경로 (인자로 전달 가능)
-POLICY_PATH="${1:-$DEFAULT_POLICY_PATH}"
+# 인자 파싱
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --debug)
+      DEBUG="true"
+      shift
+      ;;
+    *)
+      POLICY_PATH="$1"
+      shift
+      ;;
+  esac
+done
+
+# 체크포인트 경로가 없으면 기본값 사용
+if [ -z "$POLICY_PATH" ]; then
+    POLICY_PATH="$DEFAULT_POLICY_PATH"
+fi
 
 # Conda 환경 활성화
 echo -e "\n${YELLOW}[1/3] Conda 환경 활성화 중...${NC}"
@@ -65,9 +83,11 @@ if [ "$DEBUG" = "true" ]; then
     python "$SCRIPT_DIR/vla_inference_server.py" \
         --policy_path "$POLICY_PATH" \
         --port $PORT \
-        --debug
+        --debug \
+        --model_type "$MODEL_TYPE"
 else
     python "$SCRIPT_DIR/vla_inference_server.py" \
         --policy_path "$POLICY_PATH" \
-        --port $PORT
+        --port $PORT \
+        --model_type "$MODEL_TYPE"
 fi
