@@ -36,9 +36,9 @@ class ImageToServerTester(Node):
 
     # Use keys expected by the VLA server: camera1, camera2, camera3
     CAMERA_TOPICS = {
-        'camera1': '/camera/cam_1/color/image_raw/compressed',
-        'camera2': '/camera/cam_2/color/image_raw/compressed',
-        'camera3': '/camera/cam_3/color/image_raw/compressed',
+        'top': '/camera/cam_1/color/image_raw/compressed',
+        'wrist_left': '/camera/cam_2/color/image_raw/compressed',
+        'wrist_right': '/camera/cam_3/color/image_raw/compressed',
     }
 
     def __init__(self, port: int = 5555, image_size: int = 256, timeout_ms: int = 5000):

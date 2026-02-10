@@ -34,11 +34,12 @@ class VLARemoteClientNode(Node):
     """VLA 원격 추론 클라이언트 노드"""
     
     # 카메라 토픽 설정
-    # Keys chosen to match server-side expected image feature names
+    # Keys chosen to match smolvla_inference_node.py (local execution)
+    # The model expects specific feature names like 'observation.images.top' etc.
     CAMERA_TOPICS = {
-        'camera1': '/camera/cam_1/color/image_raw/compressed',
-        'camera2': '/camera/cam_2/color/image_raw/compressed',
-        'camera3': '/camera/cam_3/color/image_raw/compressed',
+        'top': '/camera/cam_1/color/image_raw/compressed',
+        'wrist_left': '/camera/cam_2/color/image_raw/compressed',
+        'wrist_right': '/camera/cam_3/color/image_raw/compressed',
     }
     
     # 16-DOF 조인트 이름 (left 8 + right 8)
