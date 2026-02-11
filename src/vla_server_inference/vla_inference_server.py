@@ -204,6 +204,12 @@ class VLAInferenceServer:
         with torch.no_grad():
             action = self.policy.select_action(batch)
         
+        # [Emergency Fix] Action 차원 불일치 해결 (32 -> 16)
+        # PI0 모델이 max_action_dim=32로 설정되어 있을 수 있으나, 
+        # 데이터셋 통계는 16차원이므로 16차원으로 슬라이싱하여 unnormalize 수행
+        if hasattr(action, "shape") and action.shape[-1] == 32:
+             action = action[..., :16]
+
         # 후처리
         if self.postprocessor:
             action = self.postprocessor(action)
