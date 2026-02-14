@@ -4,12 +4,13 @@
 VLA Inference Server - GPU 서버에서 실행
 
 ZeroMQ REP 소켓을 통해 로봇 laptop으로부터 관측 데이터를 수신하고,
-SmolVLA 추론 결과(action)를 반환합니다.
+VLA 모델(SmolVLA, Pi0, GROOT N1.5) 추론 결과(action)를 반환합니다.
 
 사용법:
     python vla_inference_server.py \
         --policy_path ~/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/pretrained_model \
         --port 5555 \
+        --model_type smolvla \
         --debug
 
 Author: Antigravity Assistant
@@ -43,7 +44,7 @@ class VLAInferenceServer:
             port: ZeroMQ 서버 포트 (localhost에서만 바인딩)
             device: GPU 디바이스 ('cuda' 또는 'cuda:0' 등)
             image_size: 입력 이미지 크기 (기본값 256x256)
-            model_type: 모델 타입 ('smolvla' 또는 'pi0')
+            model_type: 모델 타입 ('smolvla', 'pi0', 또는 'groot')
         """
         self.device = device
         self.port = port
@@ -89,6 +90,9 @@ class VLAInferenceServer:
             elif self.model_type == 'pi0':
                 from lerobot.policies.pi0.modeling_pi0 import PI0Policy
                 self.policy = PI0Policy.from_pretrained(policy_path)
+            elif self.model_type == 'groot':
+                from lerobot.policies.groot.modeling_groot import GrootPolicy
+                self.policy = GrootPolicy.from_pretrained(policy_path)
             else:
                 raise ValueError(f"지원하지 않는 모델 타입: {self.model_type}")
             self.policy.to(self.device)
@@ -305,18 +309,21 @@ class VLAInferenceServer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='VLA Inference Server - SmolVLA 원격 추론 서버',
+        description='VLA Inference Server - SmolVLA/Pi0/GROOT 원격 추론 서버',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 사용 예시:
-  # 기본 실행
+  # SmolVLA 실행 (기본값)
   python vla_inference_server.py --policy_path ~/checkpoints/smolvla
 
-  # 디버그 모드
-  python vla_inference_server.py --policy_path ~/checkpoints/smolvla --debug
+  # Pi0 실행
+  python vla_inference_server.py --policy_path ~/checkpoints/pi0 --model_type pi0
 
-  # 다른 포트 사용
-  python vla_inference_server.py --policy_path ~/checkpoints/smolvla --port 5556
+  # GROOT N1.5 실행
+  python vla_inference_server.py --policy_path ~/checkpoints/groot --model_type groot
+
+  # 디버그 모드 + 다른 포트
+  python vla_inference_server.py --policy_path ~/checkpoints/smolvla --debug --port 5556
         """
     )
     
@@ -324,7 +331,7 @@ def main():
         '--policy_path',
         type=str,
         required=True,
-        help='SmolVLA 체크포인트 경로 (필수)'
+        help='모델 체크포인트 경로 (필수)'
     )
     parser.add_argument(
         '--port',
@@ -353,8 +360,8 @@ def main():
         '--model_type',
         type=str,
         default='smolvla',
-        choices=['smolvla', 'pi0'],
-        help="모델 타입 선택: 'smolvla' 또는 'pi0' (기본값: smolvla)"
+        choices=['smolvla', 'pi0', 'groot'],
+        help="모델 타입 선택: 'smolvla', 'pi0', 또는 'groot' (기본값: smolvla)"
     )
     
     args = parser.parse_args()

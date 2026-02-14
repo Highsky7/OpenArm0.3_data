@@ -1,6 +1,11 @@
 #!/bin/bash
 # VLA Inference Server 시작 스크립트
-# 서버에서 실행: ./start_server.sh
+# 서버에서 실행: ./start_server.sh [checkpoint_path] [--debug]
+#
+# 사용 예시:
+#   ./start_server.sh /path/to/smolvla_checkpoint                  # SmolVLA (기본값)
+#   MODEL_TYPE=pi0 ./start_server.sh /path/to/pi0_checkpoint       # Pi0
+#   MODEL_TYPE=groot ./start_server.sh /path/to/groot_checkpoint   # GROOT N1.5
 
 # 색상 정의
 RED='\033[0;31m'
@@ -75,7 +80,7 @@ fi
 
 # 서버 시작
 echo -e "\n${GREEN}======================================${NC}"
-echo -e "${GREEN}  서버 시작!${NC}"
+echo -e "${GREEN}  서버 시작! (모델: $MODEL_TYPE)${NC}"
 echo -e "${GREEN}======================================${NC}"
 
 if [ "$DEBUG" = "true" ]; then
