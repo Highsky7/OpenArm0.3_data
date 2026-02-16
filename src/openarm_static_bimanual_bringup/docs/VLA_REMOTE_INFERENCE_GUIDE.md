@@ -97,7 +97,7 @@ conda activate vla_server_groot
 cd ~/OpenArm0.3_data/src/vla_server_inference
 
 python vla_inference_server.py \
-    --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/groot_run_full_finetune_v1/last/pretrained_model \
+    --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/groot_run_full_finetune_v1/checkpoints/last/pretrained_model \
     --port 5555 \
     --model_type groot \
     --debug
