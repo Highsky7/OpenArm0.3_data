@@ -663,7 +663,7 @@ def main():
     parser.add_argument(
         '--fmvla_n_action_steps',
         type=int,
-        default=None,
+        default=40,
         help='FMVLA 전용: n_action_steps override'
     )
     parser.add_argument(
