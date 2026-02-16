@@ -71,6 +71,7 @@ class VLAInferenceServer:
         self.fmvla_n_action_steps = fmvla_n_action_steps
         self.fmvla_hold_on_chunk_boundary = fmvla_hold_on_chunk_boundary
         self.fmvla_hold_max_sec = fmvla_hold_max_sec
+        self.debug = False
         self.policy = None
         self.preprocessor = None
         self.postprocessor = None
@@ -490,6 +491,7 @@ class VLAInferenceServer:
     
     def run(self, debug: bool = False):
         """메인 서버 루프"""
+        self.debug = debug
         print("🚀 서버 루프 시작!")
         
         while True:
