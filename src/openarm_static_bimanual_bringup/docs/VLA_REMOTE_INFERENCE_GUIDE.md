@@ -131,6 +131,8 @@ python vla_inference_server.py \
     --model_type fmvla \
     --port 5555 \
     --fmvla_lora_weights_path /datastore/khdw/OpenArm0.3_data/checkpoints/V_P_OpenARM_0209_2332/checkpoint-27110/pytorch_lora_weights.safetensors \
+    --fmvla_hold_on_chunk_boundary \
+    --fmvla_hold_max_sec 0 \
     --fmvla_lora_scale 1.0 \
     --debug
 
@@ -138,6 +140,7 @@ python vla_inference_server.py \
 #   --fmvla_precomputed_dir /path/to/precomputed_dir
 #   --fmvla_precomputed_only
 #   --no-fmvla_enable_sd3_cpu_offload
+#   --no-fmvla_hold_on_chunk_boundary   # 기존 즉시 재예측 방식
 ```
 
 > ⚠️ **중요**: `start_server.sh`는 `smolvla/pi0`만 지원합니다. `groot/fmvla`는 반드시 각 전용 환경에서 `python vla_inference_server.py`로 직접 실행하세요.
@@ -165,6 +168,7 @@ python vla_inference_server.py \
 > ⚠️ **FMVLA 참고사항**:
 > - 첫 실행 시 SD3/관련 가중치 로딩으로 초기 지연이 발생할 수 있습니다.
 > - `--fmvla_lora_weights_path`를 지정하면 config 내부 경로를 덮어써서 서버 로컬 경로에 맞출 수 있습니다.
+> - 기본값으로 `--fmvla_hold_on_chunk_boundary`가 활성화되어, action queue 경계에서 SD3 chunk 생성 중 마지막 action을 유지합니다.
 
 ---
 

@@ -20,6 +20,7 @@ Date: 2026-02-09
 import argparse
 import time
 import sys
+import threading
 from typing import Dict, Any, Optional
 
 import zmq
@@ -45,6 +46,8 @@ class VLAInferenceServer:
         fmvla_precomputed_only: Optional[bool] = None,
         fmvla_chunk_size: Optional[int] = None,
         fmvla_n_action_steps: Optional[int] = None,
+        fmvla_hold_on_chunk_boundary: bool = True,
+        fmvla_hold_max_sec: float = 0.0,
     ):
         """
         Args:
@@ -66,9 +69,22 @@ class VLAInferenceServer:
         self.fmvla_precomputed_only = fmvla_precomputed_only
         self.fmvla_chunk_size = fmvla_chunk_size
         self.fmvla_n_action_steps = fmvla_n_action_steps
+        self.fmvla_hold_on_chunk_boundary = fmvla_hold_on_chunk_boundary
+        self.fmvla_hold_max_sec = fmvla_hold_max_sec
         self.policy = None
         self.preprocessor = None
         self.postprocessor = None
+
+        # FMVLA hold-last-action state (used only when model_type='fmvla')
+        self._fmvla_lock = threading.Lock()
+        self._fmvla_worker_running = False
+        self._fmvla_worker_thread = None
+        self._fmvla_pending_first_action = None
+        self._fmvla_pending_error = None
+        self._fmvla_last_action = None
+        self._fmvla_hold_start_ts = None
+        self._fmvla_last_hold_log_ts = 0.0
+        self._fmvla_last_hold_warn_ts = 0.0
         
         # ZeroMQ 설정
         self._setup_zmq()
@@ -166,6 +182,9 @@ class VLAInferenceServer:
             output_shapes = getattr(self.policy.config, 'output_shapes', {})
             print(f"   State dim: {input_shapes.get('observation.state', 'N/A')}")
             print(f"   Action dim: {output_shapes.get('action', 'N/A')}")
+            if self.model_type == 'fmvla' and self.fmvla_hold_on_chunk_boundary:
+                hold_sec = "infinite" if self.fmvla_hold_max_sec <= 0 else f"{self.fmvla_hold_max_sec:.2f}s"
+                print(f"   FMVLA hold-last-action: enabled (max hold: {hold_sec})")
             
         except ImportError as e:
             print(f"❌ LeRobot 패키지 임포트 실패: {e}")
@@ -225,8 +244,8 @@ class VLAInferenceServer:
             'task': task,
         }
     
-    def _run_inference(self, parsed_data: Dict[str, Any]) -> np.ndarray:
-        """SmolVLA 추론 실행"""
+    def _prepare_batch(self, parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+        """요청 데이터를 정책 입력 배치로 변환"""
         import torch
         
         images = parsed_data['images']
@@ -260,17 +279,18 @@ class VLAInferenceServer:
         else:
              batch = observation
             
-        # Action 추론
-        with torch.no_grad():
-            action = self.policy.select_action(batch)
-        
-        # [Emergency Fix] Action 차원 불일치 해결 (32 -> 16)
-        # PI0 모델이 max_action_dim=32로 설정되어 있을 수 있으나, 
-        # 데이터셋 통계는 16차원이므로 16차원으로 슬라이싱하여 unnormalize 수행
-        if hasattr(action, "shape") and action.shape[-1] == 32:
-             action = action[..., :16]
+        return batch
 
-        # 후처리
+    def _finalize_action(self, action):
+        """정책 출력 action 후처리 및 numpy 변환"""
+        import torch
+
+        # [Emergency Fix] Action 차원 불일치 해결 (32 -> 16)
+        # PI0/FMVLA max_action_dim=32 케이스에서 OpenArm 제어 차원(16)으로 맞춤
+        if hasattr(action, "shape") and action.shape[-1] == 32:
+            action = action[..., :16]
+
+        # 후처리 (unnormalize 등)
         if self.postprocessor:
             action = self.postprocessor(action)
         
@@ -281,6 +301,173 @@ class VLAInferenceServer:
             action = np.array(action).squeeze()
         
         return action
+
+    def _fmvla_queue_len(self) -> int:
+        """FMVLA 내부 action queue 길이 반환"""
+        queue = getattr(self.policy, "_action_queue", None)
+        if queue is None:
+            return 0
+        return len(queue)
+
+    def _set_fmvla_last_action(self, action_np: np.ndarray):
+        """FMVLA hold용 마지막 action 저장"""
+        self._fmvla_last_action = np.array(action_np, dtype=np.float32, copy=True)
+
+    def _start_fmvla_chunk_worker(self, batch: Dict[str, Any]):
+        """FMVLA 다음 chunk 비동기 생성 시작"""
+        if self._fmvla_worker_running:
+            return
+
+        self._fmvla_worker_running = True
+
+        def _worker():
+            import torch
+            try:
+                with torch.no_grad():
+                    raw_action = self.policy.select_action(batch)
+                next_action = self._finalize_action(raw_action)
+                with self._fmvla_lock:
+                    self._fmvla_pending_first_action = np.array(next_action, dtype=np.float32, copy=True)
+                    self._fmvla_pending_error = None
+                    self._fmvla_worker_running = False
+            except Exception as worker_error:  # pragma: no cover - runtime safety path
+                with self._fmvla_lock:
+                    self._fmvla_pending_error = str(worker_error)
+                    self._fmvla_worker_running = False
+
+        self._fmvla_worker_thread = threading.Thread(target=_worker, daemon=True)
+        self._fmvla_worker_thread.start()
+
+    def _run_inference_fmvla_hold(self, parsed_data: Dict[str, Any]) -> np.ndarray:
+        """
+        FMVLA 전용 hold-last-action 추론:
+        - queue에 action이 남아있으면 즉시 소비
+        - queue가 비면 마지막 action 유지 + 다음 chunk 비동기 생성
+        """
+        import torch
+
+        mode = None
+        hold_action = None
+        pending_action = None
+
+        with self._fmvla_lock:
+            if self._fmvla_pending_error:
+                # 안전 우선: 오류가 나도 즉시 실패 응답 대신 마지막 action hold 유지
+                print(f"⚠ FMVLA async chunk 생성 오류: {self._fmvla_pending_error}")
+                self._fmvla_pending_error = None
+
+            if self._fmvla_pending_first_action is not None:
+                pending_action = self._fmvla_pending_first_action
+                self._fmvla_pending_first_action = None
+                self._fmvla_hold_start_ts = None
+                mode = "use_pending_first_action"
+            elif self._fmvla_worker_running:
+                hold_action = None if self._fmvla_last_action is None else self._fmvla_last_action.copy()
+                mode = "hold_while_worker_running"
+            else:
+                queue_len = self._fmvla_queue_len()
+                if queue_len > 0:
+                    mode = "consume_from_queue"
+                elif self._fmvla_last_action is None:
+                    # 첫 요청에는 hold할 action이 없으므로 동기 1회 부트스트랩
+                    mode = "bootstrap_sync_first_action"
+                else:
+                    mode = "start_worker_and_hold"
+
+        if mode == "use_pending_first_action":
+            self._set_fmvla_last_action(pending_action)
+            if self.debug:
+                print("▶ FMVLA async chunk 준비 완료: 새 chunk action 재개")
+            return pending_action
+
+        if mode == "consume_from_queue":
+            batch = self._prepare_batch(parsed_data)
+            with torch.no_grad():
+                raw_action = self.policy.select_action(batch)
+            action = self._finalize_action(raw_action)
+            with self._fmvla_lock:
+                self._set_fmvla_last_action(action)
+            return action
+
+        if mode == "bootstrap_sync_first_action":
+            batch = self._prepare_batch(parsed_data)
+            with torch.no_grad():
+                raw_action = self.policy.select_action(batch)
+            action = self._finalize_action(raw_action)
+            with self._fmvla_lock:
+                self._set_fmvla_last_action(action)
+            if self.debug:
+                print("▶ FMVLA 첫 action 동기 부트스트랩 완료")
+            return action
+
+        if mode == "start_worker_and_hold":
+            batch = self._prepare_batch(parsed_data)
+            with self._fmvla_lock:
+                # lock 재진입 시점에서 상태 재확인
+                if self._fmvla_pending_first_action is not None:
+                    pending_action = self._fmvla_pending_first_action
+                    self._fmvla_pending_first_action = None
+                    self._fmvla_hold_start_ts = None
+                else:
+                    if not self._fmvla_worker_running:
+                        self._start_fmvla_chunk_worker(batch)
+                        self._fmvla_hold_start_ts = time.time()
+                    hold_action = self._fmvla_last_action.copy()
+
+            if pending_action is not None:
+                self._set_fmvla_last_action(pending_action)
+                return pending_action
+
+            now = time.time()
+            hold_elapsed = 0.0
+            if self._fmvla_hold_start_ts is not None:
+                hold_elapsed = now - self._fmvla_hold_start_ts
+
+            if self.debug and (now - self._fmvla_last_hold_log_ts) >= 1.0:
+                print(f"⏸ FMVLA hold-last-action 유지 중... ({hold_elapsed:.2f}s)")
+                self._fmvla_last_hold_log_ts = now
+
+            if self.fmvla_hold_max_sec > 0 and hold_elapsed > self.fmvla_hold_max_sec:
+                if (now - self._fmvla_last_hold_warn_ts) >= 5.0:
+                    print(
+                        f"⚠ FMVLA hold 시간이 {self.fmvla_hold_max_sec:.2f}s를 초과했습니다. "
+                        "설정상 무기한 hold가 아니므로 상태를 점검하세요."
+                    )
+                    self._fmvla_last_hold_warn_ts = now
+
+            return hold_action
+
+        # mode == "hold_while_worker_running"
+        if hold_action is None:
+            raise RuntimeError("FMVLA hold 상태에서 last_action이 없습니다. 초기화 경로를 점검하세요.")
+
+        now = time.time()
+        if self._fmvla_hold_start_ts is not None:
+            hold_elapsed = now - self._fmvla_hold_start_ts
+        else:
+            hold_elapsed = 0.0
+
+        if self.debug and (now - self._fmvla_last_hold_log_ts) >= 1.0:
+            print(f"⏸ FMVLA worker 실행 중, hold-last-action 유지... ({hold_elapsed:.2f}s)")
+            self._fmvla_last_hold_log_ts = now
+
+        return hold_action
+
+    def _run_inference(self, parsed_data: Dict[str, Any]) -> np.ndarray:
+        """VLA 추론 실행"""
+        import torch
+
+        # FMVLA 전용: queue 경계 hold-last-action 모드
+        if self.model_type == "fmvla" and self.fmvla_hold_on_chunk_boundary:
+            return self._run_inference_fmvla_hold(parsed_data)
+
+        # 기본(기존) 동작: 요청마다 즉시 select_action
+        batch = self._prepare_batch(parsed_data)
+
+        with torch.no_grad():
+            raw_action = self.policy.select_action(batch)
+
+        return self._finalize_action(raw_action)
     
     def _send_response(self, action: np.ndarray, inference_time: float, status: str = 'ok'):
         """응답 전송"""
@@ -477,6 +664,18 @@ def main():
         default=None,
         help='FMVLA 전용: n_action_steps override'
     )
+    parser.add_argument(
+        '--fmvla_hold_on_chunk_boundary',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='FMVLA 전용: action queue 경계에서 hold-last-action 사용 여부 (기본값: True)'
+    )
+    parser.add_argument(
+        '--fmvla_hold_max_sec',
+        type=float,
+        default=0.0,
+        help='FMVLA 전용: hold 최대 시간(초). 0 이하는 무기한 hold (기본값: 0.0)'
+    )
     
     args = parser.parse_args()
     
@@ -495,6 +694,8 @@ def main():
         fmvla_precomputed_only=args.fmvla_precomputed_only,
         fmvla_chunk_size=args.fmvla_chunk_size,
         fmvla_n_action_steps=args.fmvla_n_action_steps,
+        fmvla_hold_on_chunk_boundary=args.fmvla_hold_on_chunk_boundary,
+        fmvla_hold_max_sec=args.fmvla_hold_max_sec,
     )
     
     server.run(debug=args.debug)
