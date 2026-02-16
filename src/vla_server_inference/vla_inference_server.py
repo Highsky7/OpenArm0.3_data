@@ -4,7 +4,7 @@
 VLA Inference Server - GPU 서버에서 실행
 
 ZeroMQ REP 소켓을 통해 로봇 laptop으로부터 관측 데이터를 수신하고,
-VLA 모델(SmolVLA, Pi0, GROOT N1.5) 추론 결과(action)를 반환합니다.
+VLA 모델(SmolVLA, Pi0, GROOT N1.5, FMVLA) 추론 결과(action)를 반환합니다.
 
 사용법:
     python vla_inference_server.py \
@@ -36,7 +36,15 @@ class VLAInferenceServer:
         port: int = 5555,
         device: str = 'cuda',
         image_size: int = 256,
-        model_type: str = 'smolvla'
+        model_type: str = 'smolvla',
+        fmvla_sd3_model_path: str = "stabilityai/stable-diffusion-3-medium-diffusers",
+        fmvla_lora_weights_path: Optional[str] = None,
+        fmvla_lora_scale: float = 1.0,
+        fmvla_enable_sd3_cpu_offload: bool = True,
+        fmvla_precomputed_dir: Optional[str] = None,
+        fmvla_precomputed_only: Optional[bool] = None,
+        fmvla_chunk_size: Optional[int] = None,
+        fmvla_n_action_steps: Optional[int] = None,
     ):
         """
         Args:
@@ -44,12 +52,20 @@ class VLAInferenceServer:
             port: ZeroMQ 서버 포트 (localhost에서만 바인딩)
             device: GPU 디바이스 ('cuda' 또는 'cuda:0' 등)
             image_size: 입력 이미지 크기 (기본값 256x256)
-            model_type: 모델 타입 ('smolvla', 'pi0', 또는 'groot')
+            model_type: 모델 타입 ('smolvla', 'pi0', 'groot', 또는 'fmvla')
         """
         self.device = device
         self.port = port
         self.image_size = image_size
         self.model_type = model_type
+        self.fmvla_sd3_model_path = fmvla_sd3_model_path
+        self.fmvla_lora_weights_path = fmvla_lora_weights_path
+        self.fmvla_lora_scale = fmvla_lora_scale
+        self.fmvla_enable_sd3_cpu_offload = fmvla_enable_sd3_cpu_offload
+        self.fmvla_precomputed_dir = fmvla_precomputed_dir
+        self.fmvla_precomputed_only = fmvla_precomputed_only
+        self.fmvla_chunk_size = fmvla_chunk_size
+        self.fmvla_n_action_steps = fmvla_n_action_steps
         self.policy = None
         self.preprocessor = None
         self.postprocessor = None
@@ -93,15 +109,55 @@ class VLAInferenceServer:
             elif self.model_type == 'groot':
                 from lerobot.policies.groot.modeling_groot import GrootPolicy
                 self.policy = GrootPolicy.from_pretrained(policy_path)
+            elif self.model_type == 'fmvla':
+                # Register FMVLA processor step (fmvla_task_processor) before loading
+                import lerobot.policies.fmvla.processor_fmvla  # noqa: F401
+                from lerobot.configs.policies import PreTrainedConfig
+                from lerobot.policies.fmvla.modeling_fmvla import FMVLA_Policy
+
+                cli_overrides = ["--random_init_gemma_expert=false"]
+                if self.fmvla_precomputed_dir:
+                    cli_overrides.append(f"--precomputed_dir={self.fmvla_precomputed_dir}")
+                else:
+                    cli_overrides.append("--precomputed_dir=null")
+                if self.fmvla_chunk_size is not None:
+                    cli_overrides.append(f"--chunk_size={self.fmvla_chunk_size}")
+                if self.fmvla_n_action_steps is not None:
+                    cli_overrides.append(f"--n_action_steps={self.fmvla_n_action_steps}")
+                if self.fmvla_lora_weights_path:
+                    cli_overrides.append(f"--lora_weights_path={self.fmvla_lora_weights_path}")
+                cli_overrides.append(f"--lora_scale={self.fmvla_lora_scale}")
+
+                fmvla_config = PreTrainedConfig.from_pretrained(
+                    policy_path,
+                    cli_overrides=cli_overrides,
+                )
+
+                self.policy = FMVLA_Policy.from_pretrained(
+                    pretrained_name_or_path=policy_path,
+                    config=fmvla_config,
+                    sd3_model_path=self.fmvla_sd3_model_path,
+                    enable_sd3_cpu_offload=self.fmvla_enable_sd3_cpu_offload,
+                    lora_weights_path=self.fmvla_lora_weights_path,
+                    lora_scale=self.fmvla_lora_scale,
+                    precomputed_dir=self.fmvla_precomputed_dir,
+                    precomputed_only=self.fmvla_precomputed_only,
+                )
             else:
                 raise ValueError(f"지원하지 않는 모델 타입: {self.model_type}")
             self.policy.to(self.device)
             self.policy.eval()
             
             # 전처리/후처리기 생성
+            preprocessor_overrides = {}
+            if self.model_type == "fmvla":
+                # Ensure runtime device matches CLI device argument.
+                preprocessor_overrides["device_processor"] = {"device": str(self.device)}
+
             self.preprocessor, self.postprocessor = make_pre_post_processors(
                 self.policy.config,
-                pretrained_path=policy_path
+                pretrained_path=policy_path,
+                preprocessor_overrides=preprocessor_overrides,
             )
             
             print(f"✅ 정책 로드 완료!")
@@ -309,7 +365,7 @@ class VLAInferenceServer:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='VLA Inference Server - SmolVLA/Pi0/GROOT 원격 추론 서버',
+        description='VLA Inference Server - SmolVLA/Pi0/GROOT/FMVLA 원격 추론 서버',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 사용 예시:
@@ -321,6 +377,9 @@ def main():
 
   # GROOT N1.5 실행
   python vla_inference_server.py --policy_path ~/checkpoints/groot --model_type groot
+
+  # FMVLA 실행 (전용 환경 vla_server_fmvla 권장)
+  python vla_inference_server.py --policy_path ~/checkpoints/fmvla/pretrained_model --model_type fmvla
 
   # 디버그 모드 + 다른 포트
   python vla_inference_server.py --policy_path ~/checkpoints/smolvla --debug --port 5556
@@ -360,8 +419,63 @@ def main():
         '--model_type',
         type=str,
         default='smolvla',
-        choices=['smolvla', 'pi0', 'groot'],
-        help="모델 타입 선택: 'smolvla', 'pi0', 또는 'groot' (기본값: smolvla)"
+        choices=['smolvla', 'pi0', 'groot', 'fmvla'],
+        help="모델 타입 선택: 'smolvla', 'pi0', 'groot', 또는 'fmvla' (기본값: smolvla)"
+    )
+    parser.add_argument(
+        '--fmvla_sd3_model_path',
+        type=str,
+        default='stabilityai/stable-diffusion-3-medium-diffusers',
+        help='FMVLA 전용: SD3 모델 경로 또는 HF repo id'
+    )
+    parser.add_argument(
+        '--fmvla_lora_weights_path',
+        type=str,
+        default=None,
+        help='FMVLA 전용: Vision Planner LoRA 가중치 경로'
+    )
+    parser.add_argument(
+        '--fmvla_lora_scale',
+        type=float,
+        default=1.0,
+        help='FMVLA 전용: LoRA scale (기본값: 1.0)'
+    )
+    parser.add_argument(
+        '--fmvla_enable_sd3_cpu_offload',
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help='FMVLA 전용: SD3 CPU offload 사용 여부 (기본값: True)'
+    )
+    parser.add_argument(
+        '--fmvla_precomputed_dir',
+        type=str,
+        default=None,
+        help='FMVLA 전용: precomputed 키/서브골 디렉토리'
+    )
+    parser.add_argument(
+        '--fmvla_precomputed_only',
+        dest='fmvla_precomputed_only',
+        action='store_true',
+        default=None,
+        help='FMVLA 전용: precomputed-only 모드 강제 활성화'
+    )
+    parser.add_argument(
+        '--fmvla_no_precomputed_only',
+        dest='fmvla_precomputed_only',
+        action='store_false',
+        help='FMVLA 전용: precomputed-only 모드 비활성화'
+    )
+    parser.add_argument(
+        '--fmvla_chunk_size',
+        type=int,
+        default=None,
+        help='FMVLA 전용: chunk_size override'
+    )
+    parser.add_argument(
+        '--fmvla_n_action_steps',
+        type=int,
+        default=None,
+        help='FMVLA 전용: n_action_steps override'
     )
     
     args = parser.parse_args()
@@ -372,7 +486,15 @@ def main():
         port=args.port,
         device=args.device,
         image_size=args.image_size,
-        model_type=args.model_type
+        model_type=args.model_type,
+        fmvla_sd3_model_path=args.fmvla_sd3_model_path,
+        fmvla_lora_weights_path=args.fmvla_lora_weights_path,
+        fmvla_lora_scale=args.fmvla_lora_scale,
+        fmvla_enable_sd3_cpu_offload=args.fmvla_enable_sd3_cpu_offload,
+        fmvla_precomputed_dir=args.fmvla_precomputed_dir,
+        fmvla_precomputed_only=args.fmvla_precomputed_only,
+        fmvla_chunk_size=args.fmvla_chunk_size,
+        fmvla_n_action_steps=args.fmvla_n_action_steps,
     )
     
     server.run(debug=args.debug)

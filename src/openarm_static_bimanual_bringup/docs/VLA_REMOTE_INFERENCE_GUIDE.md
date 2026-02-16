@@ -7,7 +7,7 @@
 
 ## 📋 개요
 
-이 가이드는 SSH 터널을 통해 원격 GPU 서버에서 VLA(SmolVLA, Pi0, 또는 GROOT N1.5) 모델 추론을 수행하고,
+이 가이드는 SSH 터널을 통해 원격 GPU 서버에서 VLA(SmolVLA, Pi0, GROOT N1.5, FMVLA) 모델 추론을 수행하고,
 그 결과를 로봇 laptop으로 전달하여 실시간 로봇 제어를 가능하게 하는 방법을 설명합니다.
 
 ```
@@ -15,7 +15,8 @@
 │   로봇 Laptop   │ ──────────────────────▶ │   GPU 서버           │
 │                 │   이미지 + 상태 전송    │                      │
 │   ROS2 노드     │ ◀────────────────────── │   VLA 추론           │
-│   로봇 제어     │   16-dim 액션 수신      │   (SmolVLA/Pi0/GROOT)│
+│   로봇 제어     │   16-dim 액션 수신      │ (SmolVLA/Pi0/GROOT/  │
+│                 │                         │          FMVLA)      │
 └─────────────────┘                         └──────────────────────┘
 ```
 
@@ -35,66 +36,82 @@ scp -r ~/OpenArm0.3_data gpu-server:~/
 
 ---
 
-### Step 2: 서버 환경 설정 (서버에서 실행)
+### Step 2: 서버 환경 설정 (서버에서 실행, 최초 1회)
 
 ```bash
-# 1. 서버 SSH 접속
+# 1) 서버 SSH 접속
 ssh user@서버IP
 
-# 2. Conda 환경 생성 (최초 1회)
+# 2) 작업 디렉토리 이동
+cd /datastore/khdw/OpenArm0.3_data/src/vla_server_inference
+```
+
+#### 2-1) SmolVLA / Pi0용 환경 (`vla_server`)
+
+```bash
 conda create -n vla_server python=3.10 -y
 conda activate vla_server
+cd /datastore/khdw/OpenArm0.3_data/src/vla_server_inference
+pip install -r requirements.txt
+```
 
-# 3. 의존성 설치
-cd ~/OpenArm0.3_data/src/vla_server_inference
+#### 2-2) GROOT N1.5용 환경 (`vla_server_groot`)
+
+```bash
+conda create -n vla_server_groot python=3.10 -y
+conda activate vla_server_groot
+cd /datastore/khdw/OpenArm0.3_data/src/vla_server_inference
 pip install -r requirements.txt
 
-# 3-1. GROOT N1.5 사용 시 추가 설치 (flash-attn 등)
-# 방법 A: requirements.txt에 포함된 의존성 자동 설치 (위 명령으로 충분)
-# 방법 B: lerobot의 groot extra 사용
-cd ~/lerobot_FMVLA && pip install -e ".[groot]"
+# 필요 시 lerobot groot extra 설치
+# cd /path/to/lerobot_0211_0.4.3_openarm
+# pip install -e ".[groot]"
+```
 
-# 4. 체크포인트 확인
-ls ~/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/pretrained_model/
+#### 2-3) FMVLA용 환경 (`vla_server_fmvla`)
+
+```bash
+conda create -n vla_server_fmvla python=3.10 -y
+conda activate vla_server_fmvla
+
+# FMVLA 지원 lerobot 코드 설치 (예: 커스텀 lerobot_0211_0.4.3_openarm)
+cd /path/to/lerobot_0211_0.4.3_openarm
+pip install -e .
+
+# 서버 통신 의존성 설치
+cd /datastore/khdw/OpenArm0.3_data/src/vla_server_inference
+pip install pyzmq msgpack numpy opencv-python pillow
+```
+
+#### 2-4) FMVLA 체크포인트 확인
+
+```bash
+ls /datastore/khdw/OpenArm0.3_data/checkpoints/fmvla_openarm_0213_1614/checkpoints/022500/pretrained_model
+ls /datastore/khdw/OpenArm0.3_data/checkpoints/V_P_OpenARM_0209_2332/checkpoint-27110/pytorch_lora_weights.safetensors
 ```
 
 ---
 
 ### Step 3: VLA 서버 실행 (서버에서 실행)
 
+#### 3-1) SmolVLA / Pi0: `start_server.sh` 사용 (`vla_server`)
+
 ```bash
-# 방법 1: start_server.sh 스크립트 사용 (권장)
-cd ~/OpenArm0.3_data/src/vla_server_inference
+cd /datastore/khdw/OpenArm0.3_data/src/vla_server_inference
+conda activate vla_server
 
 # SmolVLA 실행 (기본값)
-./start_server.sh /path/to/smolvla_checkpoint
+./start_server.sh /datastore/khdw/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/020000/pretrained_model
 
-# Pi0 실행 (MODEL_TYPE 환경변수 설정)
-MODEL_TYPE=pi0 ./start_server.sh /path/to/pi0_checkpoint --debug
+# Pi0 실행
+MODEL_TYPE=pi0 ./start_server.sh /datastore/khdw/OpenArm0.3_data/checkpoints/pi0_lora_20260209_080912/checkpoints/last/pretrained_model --debug
+```
 
-# GROOT N1.5 실행
-MODEL_TYPE=groot ./start_server.sh /path/to/groot_checkpoint --debug
+#### 3-2) GROOT N1.5: Python 직접 실행 (`vla_server_groot`)
 
-# 방법 2: Python 직접 실행
-conda activate vla_server
-python vla_inference_server.py \
-    --policy_path /path/to/checkpoint \
-    --port 5555 \
-    --model_type pi0 \
-    --debug
-
-# GROOT N1.5 Python 직접 실행
-python vla_inference_server.py \
-    --policy_path /path/to/groot_checkpoint \
-    --port 5555 \
-    --model_type groot \
-    --debug
-
-# GROOT N1.5 전용 가상환경 실행 (권장: PI0/SmolVLA와 환경 분리)
-# 주의: start_server.sh는 내부에서 conda activate vla_server를 수행하므로
-#       vla_server_groot를 사용할 때는 반드시 Python 직접 실행을 사용하세요.
+```bash
+cd /datastore/khdw/OpenArm0.3_data/src/vla_server_inference
 conda activate vla_server_groot
-cd ~/OpenArm0.3_data/src/vla_server_inference
 
 python vla_inference_server.py \
     --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/groot_run_full_finetune_v1/checkpoints/last/pretrained_model \
@@ -103,8 +120,32 @@ python vla_inference_server.py \
     --debug
 ```
 
-> ✅ **환경 분리 권장**: `vla_server`(SmolVLA/Pi0)와 `vla_server_groot`(GROOT N1.5)를 분리하면
-> Transformers 충돌(예: PI0 patched transformers vs GROOT 요구 버전)을 방지할 수 있습니다.
+#### 3-3) FMVLA: Python 직접 실행 (`vla_server_fmvla`)
+
+```bash
+cd /datastore/khdw/OpenArm0.3_data/src/vla_server_inference
+conda activate vla_server_fmvla
+
+python vla_inference_server.py \
+    --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/fmvla_openarm_0213_1614/checkpoints/022500/pretrained_model \
+    --model_type fmvla \
+    --port 5555 \
+    --fmvla_lora_weights_path /datastore/khdw/OpenArm0.3_data/checkpoints/V_P_OpenARM_0209_2332/checkpoint-27110/pytorch_lora_weights.safetensors \
+    --fmvla_lora_scale 1.0 \
+    --debug
+
+# 필요 시 추가 옵션:
+#   --fmvla_precomputed_dir /path/to/precomputed_dir
+#   --fmvla_precomputed_only
+#   --no-fmvla_enable_sd3_cpu_offload
+```
+
+> ⚠️ **중요**: `start_server.sh`는 `smolvla/pi0`만 지원합니다. `groot/fmvla`는 반드시 각 전용 환경에서 `python vla_inference_server.py`로 직접 실행하세요.
+>
+> ✅ **환경 분리 권장**:
+> - `vla_server`: SmolVLA/Pi0
+> - `vla_server_groot`: GROOT N1.5
+> - `vla_server_fmvla`: FMVLA
 
 서버가 정상 실행되면 다음과 같은 메시지가 표시됩니다:
 
@@ -120,6 +161,10 @@ python vla_inference_server.py \
 > - 첫 실행 시 `nvidia/GR00T-N1.5-3B` base 모델을 HuggingFace에서 다운로드합니다 (인터넷 필요)
 > - 추론에 약 6-8GB VRAM이 필요합니다
 > - `flash-attn` 패키지는 CUDA 환경에서만 설치 가능합니다
+>
+> ⚠️ **FMVLA 참고사항**:
+> - 첫 실행 시 SD3/관련 가중치 로딩으로 초기 지연이 발생할 수 있습니다.
+> - `--fmvla_lora_weights_path`를 지정하면 config 내부 경로를 덮어써서 서버 로컬 경로에 맞출 수 있습니다.
 
 ---
 
@@ -239,9 +284,9 @@ ros2 topic hz /joint_states
 OpenArm0.3_data/
 ├── src/
 │   ├── vla_server_inference/          # 서버 측 코드 (scp로 전송)
-│   │   ├── vla_inference_server.py    # ZeroMQ 서버 + SmolVLA/Pi0/GROOT 추론
+│   │   ├── vla_inference_server.py    # ZeroMQ 서버 + SmolVLA/Pi0/GROOT/FMVLA 추론
 │   │   ├── requirements.txt           # Python 의존성
-│   │   └── start_server.sh            # 서버 시작 스크립트
+│   │   └── start_server.sh            # smolvla/pi0 전용 시작 스크립트
 │   │
 │   └── openarm_static_bimanual_bringup/
 │       ├── scripts/
@@ -250,8 +295,12 @@ OpenArm0.3_data/
 │           └── vla_remote_inference.launch.py
 │
 ├── checkpoints/
-│   └── smolvla_openarm_16dim/
-│       └── pretrained_model/          # SmolVLA 체크포인트
+│   ├── smolvla_openarm_16dim/...      # SmolVLA 체크포인트
+│   ├── pi0_lora_20260209_080912/...   # Pi0 체크포인트
+│   ├── groot_run_full_finetune_v1/... # GROOT 체크포인트
+│   ├── fmvla_openarm_0213_1614/...    # FMVLA 체크포인트
+│   └── V_P_OpenARM_0209_2332/
+│       └── checkpoint-27110/pytorch_lora_weights.safetensors  # FMVLA Vision Planner LoRA
 │
 └── docs/
     └── VLA_REMOTE_INFERENCE_GUIDE.md  # 이 문서
@@ -262,8 +311,9 @@ OpenArm0.3_data/
 ## ✅ 실행 체크리스트
 
 - [ ] 서버에 OpenArm0.3_data 폴더 복사 완료
-- [ ] 서버 Conda 환경 및 의존성 설치 완료
-- [ ] VLA 서버 정상 실행 확인
+- [ ] `vla_server`/`vla_server_groot`/`vla_server_fmvla` 환경 구성 완료
+- [ ] 모델별 서버 실행 방식 확인 (`start_server.sh`: smolvla/pi0, python 직접 실행: groot/fmvla)
+- [ ] VLA 서버 정상 실행 확인 (모델별 최소 1회)
 - [ ] SSH 터널 연결 확인
 - [ ] 로봇 하드웨어 및 카메라 실행
 - [ ] Dry-run 테스트 성공 (enable_control:=false)

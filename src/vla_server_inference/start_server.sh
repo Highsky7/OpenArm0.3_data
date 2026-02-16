@@ -1,11 +1,11 @@
 #!/bin/bash
-# VLA Inference Server 시작 스크립트
+# VLA Inference Server 시작 스크립트 (smolvla/pi0 전용)
 # 서버에서 실행: ./start_server.sh [checkpoint_path] [--debug]
 #
 # 사용 예시:
 #   ./start_server.sh /path/to/smolvla_checkpoint                  # SmolVLA (기본값)
 #   MODEL_TYPE=pi0 ./start_server.sh /path/to/pi0_checkpoint       # Pi0
-#   MODEL_TYPE=groot ./start_server.sh /path/to/groot_checkpoint   # GROOT N1.5
+#   # GROOT/FMVLA는 전용 가상환경에서 python 직접 실행
 
 # 색상 정의
 RED='\033[0;31m'
@@ -25,6 +25,18 @@ PORT="${PORT:-5555}"
 DEBUG="${DEBUG:-false}"
 MODEL_TYPE="${MODEL_TYPE:-smolvla}"
 
+# start_server.sh는 smolvla/pi0만 지원
+if [[ "$MODEL_TYPE" != "smolvla" && "$MODEL_TYPE" != "pi0" ]]; then
+    echo -e "${RED}✗ start_server.sh는 smolvla/pi0만 지원합니다.${NC}"
+    echo -e "${YELLOW}groot는 vla_server_groot 환경에서 python 직접 실행하세요:${NC}"
+    echo -e "  conda activate vla_server_groot"
+    echo -e "  python $SCRIPT_DIR/vla_inference_server.py --policy_path /path/to/groot_checkpoint --model_type groot --port $PORT --debug"
+    echo -e "${YELLOW}fmvla는 vla_server_fmvla 환경에서 python 직접 실행하세요:${NC}"
+    echo -e "  conda activate vla_server_fmvla"
+    echo -e "  python $SCRIPT_DIR/vla_inference_server.py --policy_path /path/to/fmvla_pretrained_model --model_type fmvla --port $PORT --debug"
+    exit 1
+fi
+
 # 체크포인트 경로 (인자로 전달 가능)
 # 인자 파싱
 while [[ $# -gt 0 ]]; do
@@ -42,7 +54,11 @@ done
 
 # 체크포인트 경로가 없으면 기본값 사용
 if [ -z "$POLICY_PATH" ]; then
-    POLICY_PATH="$DEFAULT_POLICY_PATH"
+    if [ "$MODEL_TYPE" = "pi0" ]; then
+        POLICY_PATH="${CHECKPOINT_DIR}/pi0_lora_20260209_080912/checkpoints/last/pretrained_model"
+    else
+        POLICY_PATH="$DEFAULT_POLICY_PATH"
+    fi
 fi
 
 # Conda 환경 활성화
