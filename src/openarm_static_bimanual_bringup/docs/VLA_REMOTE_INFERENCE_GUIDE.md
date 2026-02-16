@@ -89,7 +89,22 @@ python vla_inference_server.py \
     --port 5555 \
     --model_type groot \
     --debug
+
+# GROOT N1.5 전용 가상환경 실행 (권장: PI0/SmolVLA와 환경 분리)
+# 주의: start_server.sh는 내부에서 conda activate vla_server를 수행하므로
+#       vla_server_groot를 사용할 때는 반드시 Python 직접 실행을 사용하세요.
+conda activate vla_server_groot
+cd ~/OpenArm0.3_data/src/vla_server_inference
+
+python vla_inference_server.py \
+    --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/groot_run_full_finetune_v1/last/pretrained_model \
+    --port 5555 \
+    --model_type groot \
+    --debug
 ```
+
+> ✅ **환경 분리 권장**: `vla_server`(SmolVLA/Pi0)와 `vla_server_groot`(GROOT N1.5)를 분리하면
+> Transformers 충돌(예: PI0 patched transformers vs GROOT 요구 버전)을 방지할 수 있습니다.
 
 서버가 정상 실행되면 다음과 같은 메시지가 표시됩니다:
 
