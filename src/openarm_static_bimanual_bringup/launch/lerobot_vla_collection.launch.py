@@ -23,6 +23,10 @@ This launch file replays trajectory from Phase 1 while recording camera observat
   episode_index        - 특정 에피소드만 처리 (-1 = 전체)
   playback_speed       - 재생 속도 (1.0 = 원본 속도)
   record_rate          - 녹화 프레임레이트 (Hz)
+  camera_transport     - 카메라 토픽 타입 (compressed | raw)
+  record_image_width   - 저장 이미지 너비
+  record_image_height  - 저장 이미지 높이
+  force_resize_before_record - 저장 전 강제 리사이즈 여부
 
 =============================================================================
   워크플로우
@@ -121,6 +125,26 @@ def generate_launch_description():
             default_value='1',
             description='Number of times to repeat trajectory for creating multiple VLA episodes'
         ),
+        DeclareLaunchArgument(
+            'camera_transport',
+            default_value='compressed',
+            description='Camera topic transport: compressed or raw'
+        ),
+        DeclareLaunchArgument(
+            'record_image_width',
+            default_value='256',
+            description='Recorded image width'
+        ),
+        DeclareLaunchArgument(
+            'record_image_height',
+            default_value='256',
+            description='Recorded image height'
+        ),
+        DeclareLaunchArgument(
+            'force_resize_before_record',
+            default_value='true',
+            description='Force resize camera frame to record_image_width/height before dataset write'
+        ),
     ]
     
     use_mock_hardware = LaunchConfiguration('use_mock_hardware')
@@ -137,6 +161,10 @@ def generate_launch_description():
     enable_initial_move = LaunchConfiguration('enable_initial_move')
     initial_move_duration = LaunchConfiguration('initial_move_duration')
     repeat_count = LaunchConfiguration('repeat_count')
+    camera_transport = LaunchConfiguration('camera_transport')
+    record_image_width = LaunchConfiguration('record_image_width')
+    record_image_height = LaunchConfiguration('record_image_height')
+    force_resize_before_record = LaunchConfiguration('force_resize_before_record')
     
     pkg_share = FindPackageShare('openarm_static_bimanual_bringup')
     description_pkg_share = FindPackageShare('openarm_static_bimanual_description')
@@ -231,6 +259,10 @@ def generate_launch_description():
             'task_description': task_description,
             'resume': resume,
             'repeat_count': repeat_count,
+            'camera_transport': camera_transport,
+            'record_image_width': record_image_width,
+            'record_image_height': record_image_height,
+            'force_resize_before_record': force_resize_before_record,
         }],
     )
     

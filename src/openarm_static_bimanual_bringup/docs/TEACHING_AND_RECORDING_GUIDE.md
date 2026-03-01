@@ -214,6 +214,18 @@ ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
   serial_no1:='_346222072155' serial_no2:='_247122072494' serial_no3:='_247122074423'
 ```
 
+**고품질 수집 권장(640x480@30):**
+
+```bash
+ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
+  camera_name1:=cam_1 camera_name2:=cam_2 camera_name3:=cam_3 \
+  camera_namespace1:=camera camera_namespace2:=camera camera_namespace3:=camera \
+  serial_no1:='_346222072155' serial_no2:='_247122072494' serial_no3:='_247122074423' \
+  rgb_camera.color_profile1:=640,480,30 \
+  rgb_camera.color_profile2:=640,480,30 \
+  rgb_camera.color_profile3:=640,480,30
+```
+
 **Terminal 2: VLA 데이터셋 생성 (자동)**
 
 ```bash
@@ -228,12 +240,31 @@ ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
     repeat_count:=10
 ```
 
+**고품질 VLA 수집 모드 (raw + 640x480 원본 저장):**
+
+```bash
+ros2 launch openarm_static_bimanual_bringup lerobot_vla_collection.launch.py \
+    trajectory_dataset:=~/lerobot_datasets/putting_umbrellas1 \
+    vla_dataset:=~/lerobot_datasets/openarm_vla \
+    task_description:="Put the umbrellas into the basket" \
+    repeat_count:=10 \
+    camera_transport:=raw \
+    record_image_width:=640 \
+    record_image_height:=480 \
+    force_resize_before_record:=false
+```
+
 > [!NOTE]
 > **주요 옵션 설명**
 >
 > - **`trajectory_dataset`** (필수): Phase 1에서 수집한 원본 Trajectory 데이터셋의 경로입니다.
 > - **`vla_dataset`**: 생성될 VLA 데이터셋의 저장 경로입니다. 지정하지 않을 경우 `trajectory_dataset` 경로 뒤에 `_vla`가 붙습니다.
 > - **`task_description`**: 데이터셋 메타데이터에 기록될 작업 설명입니다. 자연어 지시사항(Instruction)으로 사용됩니다.
+> - **`camera_transport`**: 카메라 토픽 타입입니다. `compressed`(기본) 또는 `raw`.
+> - **`record_image_width` / `record_image_height`**: 데이터셋 저장 해상도입니다 (기본 `256x256`).
+> - **`force_resize_before_record`**:
+>   - `true`(기본): 수집 전에 지정 해상도로 강제 리사이즈합니다.
+>   - `false`: 입력 해상도를 그대로 저장합니다. 이때 실제 카메라 해상도가 지정값과 다르면 안전하게 중단됩니다.
 > - **`repeat_count`**: **데이터 증강(Augmentation)을 위한 핵심 기능입니다.**
 >   - 동일한 Trajectory를 지정된 횟수만큼 반복 재생합니다.
 >   - 반복할 때마다 카메라 노이즈, 조명 변화 등이 자연스럽게 반영되어 데이터의 다양성을 확보할 수 있습니다.

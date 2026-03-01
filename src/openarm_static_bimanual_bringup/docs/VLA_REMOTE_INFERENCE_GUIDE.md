@@ -207,6 +207,17 @@ ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
     serial_no3:="'_327322071339'"
 ```
 
+```bash
+# 권장: 640x480@30 명시 (수집/추론 해상도 일관성 확보)
+ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
+    serial_no1:="'_317322073024'" \
+    serial_no2:="'_326522073051'" \
+    serial_no3:="'_327322071339'" \
+    rgb_camera.color_profile1:=640,480,30 \
+    rgb_camera.color_profile2:=640,480,30 \
+    rgb_camera.color_profile3:=640,480,30
+```
+
 ---
 
 ### Step 6: VLA 추론 실행 (로봇 laptop에서 실행)

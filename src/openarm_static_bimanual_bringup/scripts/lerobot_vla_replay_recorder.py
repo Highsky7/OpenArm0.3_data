@@ -38,7 +38,7 @@ from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup, ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
-from sensor_msgs.msg import CompressedImage, JointState
+from sensor_msgs.msg import CompressedImage, Image, JointState
 from std_msgs.msg import Float64MultiArray
 
 # -----------------------------------------------------------------------------
@@ -108,13 +108,13 @@ class LeRobotVLAReplayRecorder(Node):
     RIGHT_ARM_JOINTS = ['right_rev1', 'right_rev2', 'right_rev3', 'right_rev4',
                         'right_rev5', 'right_rev6', 'right_rev7']
     
-    # Camera configuration (using compressed image topics for better bandwidth)
-    CAMERA_TOPICS = {
-        'top': '/camera/cam_1/color/image_raw/compressed',
-        'wrist_left': '/camera/cam_2/color/image_raw/compressed',
-        'wrist_right': '/camera/cam_3/color/image_raw/compressed',
+    # Camera base topics. "/compressed" suffix is added when camera_transport=compressed.
+    CAMERA_BASE_TOPICS = {
+        'top': '/camera/cam_1/color/image_raw',
+        'wrist_left': '/camera/cam_2/color/image_raw',
+        'wrist_right': '/camera/cam_3/color/image_raw',
     }
-    IMAGE_SIZE = (256, 256)
+    SUPPORTED_CAMERA_TRANSPORTS = {'compressed', 'raw'}
     
     def __init__(self):
         super().__init__('lerobot_vla_replay_recorder')
@@ -129,6 +129,10 @@ class LeRobotVLAReplayRecorder(Node):
         self.declare_parameter('task_description', 'bimanual manipulation task')
         self.declare_parameter('resume', True)
         self.declare_parameter('repeat_count', 1)  # Number of times to repeat trajectory for VLA episodes
+        self.declare_parameter('camera_transport', 'compressed')  # compressed | raw
+        self.declare_parameter('record_image_width', 256)
+        self.declare_parameter('record_image_height', 256)
+        self.declare_parameter('force_resize_before_record', True)
         
         trajectory_path = self.get_parameter('trajectory_dataset').value
         vla_path = self.get_parameter('vla_dataset').value
@@ -139,6 +143,17 @@ class LeRobotVLAReplayRecorder(Node):
         self.task_description = self.get_parameter('task_description').value
         self.resume = self.get_parameter('resume').value
         self.repeat_count = self.get_parameter('repeat_count').value
+        self.camera_transport = str(
+            self.get_parameter('camera_transport').value).strip().lower()
+        self.record_image_width = int(self.get_parameter('record_image_width').value)
+        self.record_image_height = int(self.get_parameter('record_image_height').value)
+        force_resize_value = self.get_parameter('force_resize_before_record').value
+        if isinstance(force_resize_value, str):
+            self.force_resize_before_record = force_resize_value.strip().lower() in {
+                '1', 'true', 'yes', 'on'
+            }
+        else:
+            self.force_resize_before_record = bool(force_resize_value)
         
         if not trajectory_path:
             self.get_logger().error('No trajectory_dataset specified!')
@@ -147,6 +162,16 @@ class LeRobotVLAReplayRecorder(Node):
         if not vla_path:
             # Default: trajectory path + "_vla"
             vla_path = trajectory_path.rstrip('/') + '_vla'
+
+        if self.camera_transport not in self.SUPPORTED_CAMERA_TRANSPORTS:
+            raise ValueError(
+                f"Unsupported camera_transport='{self.camera_transport}'. "
+                f"Expected one of {sorted(self.SUPPORTED_CAMERA_TRANSPORTS)}")
+        if self.record_image_width <= 0 or self.record_image_height <= 0:
+            raise ValueError(
+                f"record_image_width/height must be > 0, got "
+                f"{self.record_image_width}x{self.record_image_height}")
+        self.camera_topics = self._build_camera_topics(self.camera_transport)
         
         self.trajectory_path = Path(os.path.expanduser(trajectory_path))
         self.vla_path = Path(os.path.expanduser(vla_path))
@@ -159,8 +184,10 @@ class LeRobotVLAReplayRecorder(Node):
         self.last_joint_state: Optional[JointState] = None
         self.cv_bridge = CvBridge()
         self.latest_images: dict[str, Optional[np.ndarray]] = {
-            key: None for key in self.CAMERA_TOPICS.keys()
+            key: None for key in self.camera_topics.keys()
         }
+        self._image_update_times: dict[str, float] = {}
+        self._camera_shape_error: Optional[str] = None
         self.image_lock = Lock()
         self.joint_state_lock = Lock()
         
@@ -200,16 +227,30 @@ class LeRobotVLAReplayRecorder(Node):
             JointState, '/joint_states', self.joint_state_callback, 10,
             callback_group=self.joint_callback_group)
         
-        # Subscribers: Cameras (compressed images) - ReentrantCallbackGroup allows parallel execution
-        for key, topic in self.CAMERA_TOPICS.items():
-            self.create_subscription(
-                CompressedImage,
-                topic,
-                lambda msg, k=key: self.image_callback(msg, k),
-                10,
-                callback_group=self.image_callback_group
-            )
-            self.get_logger().info(f'Subscribed: {topic} -> observation.images.{key}')
+        # Subscribers: Cameras (compressed/raw images) - ReentrantCallbackGroup allows parallel execution
+        for key, topic in self.camera_topics.items():
+            if self.camera_transport == 'compressed':
+                self.create_subscription(
+                    CompressedImage,
+                    topic,
+                    lambda msg, k=key: self.compressed_image_callback(msg, k),
+                    10,
+                    callback_group=self.image_callback_group
+                )
+            else:
+                self.create_subscription(
+                    Image,
+                    topic,
+                    lambda msg, k=key: self.raw_image_callback(msg, k),
+                    10,
+                    callback_group=self.image_callback_group
+                )
+            self.get_logger().info(f'Subscribed ({self.camera_transport}): {topic} -> observation.images.{key}')
+
+        self.get_logger().info(
+            f'📷 Image record config | transport={self.camera_transport} '
+            f'| target={self.record_image_width}x{self.record_image_height} '
+            f'| force_resize_before_record={self.force_resize_before_record}')
         
         # Initialize VLA dataset
         self._init_vla_dataset()
@@ -235,10 +276,10 @@ class LeRobotVLAReplayRecorder(Node):
         }
         
         # Add camera features
-        for key in self.CAMERA_TOPICS.keys():
+        for key in self.camera_topics.keys():
             features[f"observation.images.{key}"] = {
                 "dtype": "video",
-                "shape": (self.IMAGE_SIZE[1], self.IMAGE_SIZE[0], 3),
+                "shape": (self.record_image_height, self.record_image_width, 3),
                 "names": ["height", "width", "channels"],
             }
         
@@ -323,30 +364,72 @@ class LeRobotVLAReplayRecorder(Node):
         """Store latest joint state with thread safety."""
         with self.joint_state_lock:
             self.last_joint_state = msg
-    
-    def image_callback(self, msg: CompressedImage, image_key: str):
-        """Store and resize latest compressed camera image."""
+
+    def _build_camera_topics(self, transport: str) -> dict[str, str]:
+        """Build topic map for selected transport."""
+        if transport == 'compressed':
+            return {k: f'{v}/compressed' for k, v in self.CAMERA_BASE_TOPICS.items()}
+        return dict(self.CAMERA_BASE_TOPICS)
+
+    def _validate_or_resize_image(
+        self, rgb_image: np.ndarray, image_key: str
+    ) -> Optional[np.ndarray]:
+        """Resize or validate frame shape before recording."""
+        target_w = self.record_image_width
+        target_h = self.record_image_height
+        src_h, src_w = rgb_image.shape[:2]
+
+        if self.force_resize_before_record:
+            if (src_w, src_h) != (target_w, target_h):
+                return cv2.resize(rgb_image, (target_w, target_h), interpolation=cv2.INTER_AREA)
+            return rgb_image
+
+        # no-resize mode: strict size matching to protect dataset feature consistency
+        if (src_w, src_h) != (target_w, target_h):
+            err = (
+                f'Camera frame size mismatch ({image_key}): expected '
+                f'{target_w}x{target_h}, got {src_w}x{src_h}. '
+                'Set force_resize_before_record:=true or fix camera profile.'
+            )
+            if self._camera_shape_error is None:
+                self.get_logger().error(err)
+            self._camera_shape_error = err
+            return None
+        return rgb_image
+
+    def _store_camera_image(self, rgb_image: np.ndarray, image_key: str):
+        """Store latest camera image after resize/shape validation."""
+        processed = self._validate_or_resize_image(rgb_image, image_key)
+        if processed is None:
+            return
+
+        with self.image_lock:
+            self.latest_images[image_key] = processed
+            self._image_update_times[image_key] = time.monotonic()
+
+    def compressed_image_callback(self, msg: CompressedImage, image_key: str):
+        """Decode compressed image and store latest frame."""
         try:
-            # Decode compressed image (JPEG/PNG) to numpy array
             np_arr = np.frombuffer(msg.data, np.uint8)
             cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-            
+
             if cv_image is None:
                 self.get_logger().warn(f'Failed to decode compressed image ({image_key})')
                 return
-            
-            # Convert BGR to RGB (OpenCV decodes as BGR)
-            cv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
-            
-            resized = cv2.resize(cv_image, self.IMAGE_SIZE, interpolation=cv2.INTER_AREA)
-            with self.image_lock:
-                self.latest_images[image_key] = resized
-                # Track when each camera was last updated
-                if not hasattr(self, '_image_update_times'):
-                    self._image_update_times = {}
-                self._image_update_times[image_key] = time.monotonic()
+
+            rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+            self._store_camera_image(rgb_image, image_key)
         except Exception as e:
             self.get_logger().warn(f'Compressed image conversion error ({image_key}): {e}')
+
+    def raw_image_callback(self, msg: Image, image_key: str):
+        """Decode raw ROS image and store latest frame."""
+        try:
+            cv_image = self.cv_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            rgb_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+            self._store_camera_image(rgb_image, image_key)
+        except Exception as e:
+            self.get_logger().warn(f'Raw image conversion error ({image_key}): {e}')
     
     def _get_current_images(self) -> dict[str, Optional[np.ndarray]]:
         """Get current images with thread safety."""
@@ -390,6 +473,12 @@ class LeRobotVLAReplayRecorder(Node):
     def start_replay_once(self):
         """Start replay once cameras are ready."""
         if self._started:
+            return
+
+        if self._camera_shape_error:
+            self.get_logger().error(
+                f'Camera shape validation failed before replay start: {self._camera_shape_error}')
+            rclpy.shutdown()
             return
         
         # Check cameras
@@ -455,6 +544,10 @@ class LeRobotVLAReplayRecorder(Node):
         self.get_logger().info(f'  Original trajectory fps: {self.trajectory_fps} Hz')
         self.get_logger().info(f'  Effective playback fps: {self.trajectory_fps * self.playback_speed} Hz')
         self.get_logger().info(f'  VLA record rate: {self.record_rate} Hz')
+        self.get_logger().info(
+            f'  Camera transport: {self.camera_transport} | '
+            f'Target image: {self.record_image_width}x{self.record_image_height} | '
+            f'Force resize: {self.force_resize_before_record}')
         self.get_logger().info('=' * 60)
         
         # Process each episode with repeat count
@@ -505,8 +598,7 @@ class LeRobotVLAReplayRecorder(Node):
         with self.image_lock:
             for key in self.latest_images:
                 self.latest_images[key] = None
-            if hasattr(self, '_image_update_times'):
-                self._image_update_times.clear()
+            self._image_update_times.clear()
         
         start_wait = time.monotonic()
         while time.monotonic() - start_wait < timeout:
@@ -650,6 +742,11 @@ class LeRobotVLAReplayRecorder(Node):
             # Record current state + cameras
             current_positions = self._get_joint_positions()
             current_images = self._get_current_images()
+
+            if self._camera_shape_error:
+                self.get_logger().error(
+                    f'Aborting episode due to camera shape error: {self._camera_shape_error}')
+                return 0
             
             if current_positions is None:
                 continue
@@ -659,7 +756,7 @@ class LeRobotVLAReplayRecorder(Node):
                 continue
             
             # Debug: Check if images are actually being updated
-            if frame_idx % 50 == 0 and hasattr(self, '_image_update_times'):
+            if frame_idx % 50 == 0:
                 now = time.monotonic()
                 for cam_key, update_time in self._image_update_times.items():
                     age_ms = (now - update_time) * 1000
