@@ -37,14 +37,8 @@ endif()
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/scripts)
   install(PROGRAMS
     scripts/jsp_fpc_bridge.py
-    scripts/test_trajectory_node.py
     scripts/gravity_comp_node.py
-    scripts/continuous_recorder_node.py
     scripts/keyboard_gripper_controller.py
-    scripts/fmvla_data_record.py
-    scripts/trajectory_replay_node.py
-    scripts/lerobot_vla_recorder.py
-    scripts/lerobot_vla_replay.py
     scripts/lerobot_trajectory_recorder.py
     scripts/lerobot_vla_replay_recorder.py
     scripts/fake_camera_publisher.py
