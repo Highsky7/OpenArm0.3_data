@@ -223,24 +223,28 @@ ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
     rgb_camera.color_profile3:=640,480,30
 ```
 
-### Step 5-1: `cam_1` 컬러 토픽을 `.mp4`로 실시간 녹화 (선택)
+### Step 5-1: FMVLA용 `top view`를 512x512 정방형 `.mp4`로 저장 (선택)
 
-원격 VLA 추론과 별개로, `cam_1` 영상만 실시간 `.mp4`로 남기고 싶다면 아래 standalone recorder를 사용합니다.
+원격 VLA 추론과 별개로, FMVLA가 사용하는 `top view`와 같은 전처리 방식으로 영상을 남기고 싶다면 아래 standalone recorder를 사용합니다.
 
 - 대상 토픽: `/camera/cam_1/color/image_raw/compressed`
 - 메시지 타입: `sensor_msgs/msg/CompressedImage`
+- 전처리 방식: 원본 `cam_1` 프레임을 **정방형으로 direct resize**
+- 추론 입력 크기: `256x256` (`vla_remote_inference.launch.py` 의 `image_size:=256`)
+- 저장 영상 크기: `512x512` (`cam1_mp4_recorder.py --record-size 512`)
 - 출력 형식: H.264 `.mp4`
-- 파일명 규칙: `cam1_YYYYMMDD_HHMMSS_ffffff_pidPID.mp4`
+- 파일명 규칙: `fmvla_top512_YYYYMMDD_HHMMSS_ffffff_pidPID.mp4`
 - 파일 저장 시작 시점: **첫 정상 프레임 수신 후**
 
 ```bash
 # 새 터미널에서 실행
 source /opt/ros/humble/setup.bash
 
-python3 /home/mintlabskh/cam1_mp4_recorder.py \
+python3 /home/highsky/cam1_mp4_recorder.py \
     --topic /camera/cam_1/color/image_raw/compressed \
-    --output-dir ~/ros2_recordings/cam1 \
-    --prefix cam1 \
+    --output-dir ~/ros2_recordings/fmvla_top \
+    --prefix fmvla_top512 \
+    --record-size 512 \
     --fps 30.0
 ```
 
@@ -248,14 +252,16 @@ python3 /home/mintlabskh/cam1_mp4_recorder.py \
 >
 > 1. Step 5의 하드웨어/카메라를 먼저 실행
 > 2. 위 recorder를 실행
-> 3. Step 6의 VLA 추론을 실행
+> 3. Step 6의 VLA 추론을 `image_size:=256` 으로 실행
 
 #### recorder 동작 상세
 
-- `CompressedImage`를 받아 `ffmpeg`로 바로 인코딩하므로, `rosbag` 후변환 없이 곧바로 `.mp4`가 생성됩니다.
+- `CompressedImage`를 decode 한 뒤, FMVLA와 같은 방식으로 **정방형 resize** 해서 `ffmpeg`로 바로 인코딩합니다.
+- 현재 FMVLA 추론은 `256x256` 입력을 사용하지만, 저장 영상은 시인성을 위해 `512x512`로 남깁니다.
+- 즉, **전처리 정책은 같고 저장 해상도만 더 큽니다.**
 - 같은 초에 여러 번 실행해도 마이크로초(`ffffff`)와 PID가 붙어 파일명이 겹치지 않습니다.
 - 녹화는 지정 FPS(`--fps`) 기준의 고정 FPS MP4로 저장됩니다.
-- 중간에 해상도가 바뀌면 현재 파일을 닫고 새 파일로 자동 롤오버합니다.
+- 원본 카메라 해상도가 바뀌어도 저장 파일은 계속 `512x512` 정방형입니다.
 - 토픽이 안 오면 파일이 만들어지지 않습니다. 첫 프레임이 와야 인코더가 시작됩니다.
 
 #### 안전 종료
@@ -271,11 +277,17 @@ python3 /home/mintlabskh/cam1_mp4_recorder.py \
 source /opt/ros/humble/setup.bash
 ros2 topic info /camera/cam_1/color/image_raw/compressed
 
-# 녹화 파일 확인
-ls -lh ~/ros2_recordings/cam1
+# FMVLA 추론은 256x256 입력 유지
+ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
+    image_size:=256 \
+    enable_control:=false \
+    debug:=true
 
-# 저장된 mp4 메타데이터 확인
-ffprobe -hide_banner ~/ros2_recordings/cam1/<생성된파일명>.mp4
+# 녹화 파일 확인
+ls -lh ~/ros2_recordings/fmvla_top
+
+# 저장된 mp4 메타데이터 확인 (해상도 512x512 확인)
+ffprobe -hide_banner ~/ros2_recordings/fmvla_top/<생성된파일명>.mp4
 ```
 
 ---
@@ -367,6 +379,8 @@ ffmpeg -version
 
 - `cam1_mp4_recorder.py`는 **첫 프레임을 받은 뒤에만** `.mp4` 파일을 생성합니다.
 - 토픽 타입은 반드시 `sensor_msgs/msg/CompressedImage` 여야 합니다.
+- `--record-size 512` 로 실행하면 저장 영상은 항상 `512x512` 여야 합니다.
+- FMVLA 추론 입력 크기는 별도이며, `vla_remote_inference.launch.py image_size:=256` 와 혼동하지 마세요.
 - 비정상 종료한 경우 `.mp4`가 재생되지 않을 수 있으니 `Ctrl+C` 정상 종료를 사용하세요.
 
 ---
@@ -409,6 +423,6 @@ OpenArm0.3_data/
 - [ ] VLA 서버 정상 실행 확인 (모델별 최소 1회)
 - [ ] SSH 터널 연결 확인
 - [ ] 로봇 하드웨어 및 카메라 실행
-- [ ] 필요 시 `python3 /home/highsky/cam1_mp4_recorder.py ...` 로 `cam_1` 실시간 mp4 녹화 시작
+- [ ] 필요 시 `python3 /home/highsky/cam1_mp4_recorder.py --record-size 512 ...` 로 FMVLA top-view mp4 녹화 시작
 - [ ] Dry-run 테스트 성공 (enable_control:=false)
 - [ ] 실제 로봇 제어 테스트 (enable_control:=true)
