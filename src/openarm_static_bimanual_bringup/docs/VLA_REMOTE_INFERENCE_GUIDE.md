@@ -146,6 +146,7 @@ python vla_inference_server.py \
 > ⚠️ **중요**: `start_server.sh`는 `smolvla/pi0`만 지원합니다. `groot/fmvla`는 반드시 각 전용 환경에서 `python vla_inference_server.py`로 직접 실행하세요.
 >
 > ✅ **환경 분리 권장**:
+>
 > - `vla_server`: SmolVLA/Pi0
 > - `vla_server_groot`: GROOT N1.5
 > - `vla_server_fmvla`: FMVLA
@@ -161,14 +162,18 @@ python vla_inference_server.py \
 ```
 
 > ⚠️ **GROOT N1.5 참고사항**:
+>
 > - 첫 실행 시 `nvidia/GR00T-N1.5-3B` base 모델을 HuggingFace에서 다운로드합니다 (인터넷 필요)
 > - 추론에 약 6-8GB VRAM이 필요합니다
 > - `flash-attn` 패키지는 CUDA 환경에서만 설치 가능합니다
 >
 > ⚠️ **FMVLA 참고사항**:
+>
 > - 첫 실행 시 SD3/관련 가중치 로딩으로 초기 지연이 발생할 수 있습니다.
 > - `--fmvla_lora_weights_path`를 지정하면 config 내부 경로를 덮어써서 서버 로컬 경로에 맞출 수 있습니다.
 > - 기본값으로 `--fmvla_hold_on_chunk_boundary`가 활성화되어, action queue 경계에서 SD3 chunk 생성 중 마지막 action을 유지합니다.
+> - `--debug`로 실행하면 생성된 모든 subgoal image가 서버의 `src/vla_server_inference/fmvla_subgoals/<세션시각>/subgoal_000001.png` 형태로 추가 저장됩니다.
+> - 위 archive 저장은 **새 action chunk가 생성될 때마다** 1장씩 누적됩니다. 요청 수와 1:1은 아닙니다.
 
 ---
 
@@ -216,6 +221,61 @@ ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
     rgb_camera.color_profile1:=640,480,30 \
     rgb_camera.color_profile2:=640,480,30 \
     rgb_camera.color_profile3:=640,480,30
+```
+
+### Step 5-1: `cam_1` 컬러 토픽을 `.mp4`로 실시간 녹화 (선택)
+
+원격 VLA 추론과 별개로, `cam_1` 영상만 실시간 `.mp4`로 남기고 싶다면 아래 standalone recorder를 사용합니다.
+
+- 대상 토픽: `/camera/cam_1/color/image_raw/compressed`
+- 메시지 타입: `sensor_msgs/msg/CompressedImage`
+- 출력 형식: H.264 `.mp4`
+- 파일명 규칙: `cam1_YYYYMMDD_HHMMSS_ffffff_pidPID.mp4`
+- 파일 저장 시작 시점: **첫 정상 프레임 수신 후**
+
+```bash
+# 새 터미널에서 실행
+source /opt/ros/humble/setup.bash
+
+python3 /home/mintlabskh/cam1_mp4_recorder.py \
+    --topic /camera/cam_1/color/image_raw/compressed \
+    --output-dir ~/ros2_recordings/cam1 \
+    --prefix cam1 \
+    --fps 30.0
+```
+
+> ✅ 권장 실행 순서:
+>
+> 1. Step 5의 하드웨어/카메라를 먼저 실행
+> 2. 위 recorder를 실행
+> 3. Step 6의 VLA 추론을 실행
+
+#### recorder 동작 상세
+
+- `CompressedImage`를 받아 `ffmpeg`로 바로 인코딩하므로, `rosbag` 후변환 없이 곧바로 `.mp4`가 생성됩니다.
+- 같은 초에 여러 번 실행해도 마이크로초(`ffffff`)와 PID가 붙어 파일명이 겹치지 않습니다.
+- 녹화는 지정 FPS(`--fps`) 기준의 고정 FPS MP4로 저장됩니다.
+- 중간에 해상도가 바뀌면 현재 파일을 닫고 새 파일로 자동 롤오버합니다.
+- 토픽이 안 오면 파일이 만들어지지 않습니다. 첫 프레임이 와야 인코더가 시작됩니다.
+
+#### 안전 종료
+
+- 반드시 `Ctrl+C`로 종료하세요.
+- 정상 종료 시 `ffmpeg`가 마무리되면서 MP4 메타데이터가 flush 됩니다.
+- `kill -9` 같은 강제 종료는 깨진 MP4를 남길 수 있습니다.
+
+#### 빠른 검증 명령
+
+```bash
+# 토픽과 타입 확인
+source /opt/ros/humble/setup.bash
+ros2 topic info /camera/cam_1/color/image_raw/compressed
+
+# 녹화 파일 확인
+ls -lh ~/ros2_recordings/cam1
+
+# 저장된 mp4 메타데이터 확인
+ffprobe -hide_banner ~/ros2_recordings/cam1/<생성된파일명>.mp4
 ```
 
 ---
@@ -291,6 +351,24 @@ ros2 topic hz /camera/cam_1/color/image_raw/compressed
 ros2 topic hz /joint_states
 ```
 
+### 4. `cam1_mp4_recorder.py`가 파일을 만들지 않음
+
+```bash
+# 1) ROS 환경 source 확인
+source /opt/ros/humble/setup.bash
+
+# 2) 토픽 실제 수신 확인
+ros2 topic info /camera/cam_1/color/image_raw/compressed
+ros2 topic hz /camera/cam_1/color/image_raw/compressed
+
+# 3) ffmpeg 설치 확인
+ffmpeg -version
+```
+
+- `cam1_mp4_recorder.py`는 **첫 프레임을 받은 뒤에만** `.mp4` 파일을 생성합니다.
+- 토픽 타입은 반드시 `sensor_msgs/msg/CompressedImage` 여야 합니다.
+- 비정상 종료한 경우 `.mp4`가 재생되지 않을 수 있으니 `Ctrl+C` 정상 종료를 사용하세요.
+
 ---
 
 ## 📁 파일 구조
@@ -331,5 +409,6 @@ OpenArm0.3_data/
 - [ ] VLA 서버 정상 실행 확인 (모델별 최소 1회)
 - [ ] SSH 터널 연결 확인
 - [ ] 로봇 하드웨어 및 카메라 실행
+- [ ] 필요 시 `python3 /home/highsky/cam1_mp4_recorder.py ...` 로 `cam_1` 실시간 mp4 녹화 시작
 - [ ] Dry-run 테스트 성공 (enable_control:=false)
 - [ ] 실제 로봇 제어 테스트 (enable_control:=true)
