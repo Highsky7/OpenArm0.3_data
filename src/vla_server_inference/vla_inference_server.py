@@ -21,6 +21,8 @@ import argparse
 import time
 import sys
 import threading
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 import zmq
@@ -86,6 +88,9 @@ class VLAInferenceServer:
         self._fmvla_hold_start_ts = None
         self._fmvla_last_hold_log_ts = 0.0
         self._fmvla_last_hold_warn_ts = 0.0
+        self._fmvla_subgoal_archive_lock = threading.Lock()
+        self._fmvla_subgoal_session_dir = None
+        self._fmvla_subgoal_counter = 0
         
         # ZeroMQ 설정
         self._setup_zmq()
@@ -164,6 +169,8 @@ class VLAInferenceServer:
                 raise ValueError(f"지원하지 않는 모델 타입: {self.model_type}")
             self.policy.to(self.device)
             self.policy.eval()
+            if self.model_type == "fmvla":
+                self._install_fmvla_subgoal_archive_hook()
             
             # 전처리/후처리기 생성
             preprocessor_overrides = {}
@@ -194,6 +201,61 @@ class VLAInferenceServer:
         except Exception as e:
             print(f"❌ 정책 로드 실패: {e}")
             sys.exit(1)
+
+    def _ensure_fmvla_subgoal_session_dir(self) -> Optional[Path]:
+        """FMVLA subgoal archive 세션 디렉토리 준비"""
+        if self.model_type != "fmvla" or not self.debug:
+            return None
+
+        with self._fmvla_subgoal_archive_lock:
+            if self._fmvla_subgoal_session_dir is None:
+                session_name = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                session_dir = Path(__file__).resolve().parent / "fmvla_subgoals" / session_name
+                session_dir.mkdir(parents=True, exist_ok=True)
+                self._fmvla_subgoal_session_dir = session_dir
+                print(f"🖼️ FMVLA subgoal archive 디렉토리: {session_dir}")
+            return self._fmvla_subgoal_session_dir
+
+    def _next_fmvla_subgoal_path(self) -> Optional[Path]:
+        """다음 FMVLA subgoal archive 경로 반환"""
+        session_dir = self._ensure_fmvla_subgoal_session_dir()
+        if session_dir is None:
+            return None
+
+        with self._fmvla_subgoal_archive_lock:
+            self._fmvla_subgoal_counter += 1
+            filename = f"subgoal_{self._fmvla_subgoal_counter:06d}.png"
+            return session_dir / filename
+
+    def _install_fmvla_subgoal_archive_hook(self):
+        """FMVLA generated image를 archive로 추가 저장하는 hook 설치"""
+        encoder = getattr(self.policy, "sd3_encoder", None)
+        if encoder is None:
+            return
+        if getattr(encoder, "_openarm_subgoal_archive_hook_installed", False):
+            return
+
+        original_encode_image = encoder.encode_image
+
+        def encode_image_with_archive(*args, **kwargs):
+            result = original_encode_image(*args, **kwargs)
+            if not isinstance(result, tuple) or len(result) != 3:
+                return result
+
+            past_kv, prefix_masks, gen_img = result
+            if self.debug and gen_img is not None:
+                archive_path = self._next_fmvla_subgoal_path()
+                if archive_path is not None:
+                    try:
+                        gen_img.save(archive_path)
+                        print(f"🖼️ FMVLA subgoal archived: {archive_path.name}")
+                    except Exception as archive_error:
+                        print(f"⚠ FMVLA subgoal archive 저장 실패: {archive_error}")
+
+            return past_kv, prefix_masks, gen_img
+
+        encoder.encode_image = encode_image_with_archive
+        encoder._openarm_subgoal_archive_hook_installed = True
     
     def _print_banner(self):
         """서버 시작 배너 출력"""
