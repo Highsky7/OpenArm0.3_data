@@ -42,7 +42,8 @@ def make_dummy_images(image_size: int, step: int) -> Dict[str, bytes]:
         offset = np.uint8((step * 3 + idx * 53) % 256)
         channel_r = (x_grid + offset).astype(np.uint8)
         channel_g = (y_grid + np.uint8(idx * 37)).astype(np.uint8)
-        channel_b = ((x_grid // 2 + y_grid // 2) + np.uint8(step + idx * 19)).astype(np.uint8)
+        blue_offset = np.uint8((step + idx * 19) % 256)
+        channel_b = ((x_grid // 2 + y_grid // 2) + blue_offset).astype(np.uint8)
         rgb = np.stack([channel_r, channel_g, channel_b], axis=-1)
         images[f"observation.images.{key}"] = np.ascontiguousarray(rgb).tobytes()
 
