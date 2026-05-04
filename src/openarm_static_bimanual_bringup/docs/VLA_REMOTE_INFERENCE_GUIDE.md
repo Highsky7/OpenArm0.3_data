@@ -194,6 +194,9 @@ ssh -L 5555:localhost:5555 dongwoo@163.152.193.246
 # 또는 백그라운드 모드
 ssh -fN -L 5555:localhost:5555 dongwoo@163.152.193.246
 
+# dummy test 시(이승민 개인 노트북)
+ssh -L 5555:localhost:5555 mintlabserver0_dongwoo
+
 ### ✅ 터널링 성공 확인
 1. **일반 모드**: 서버에 로그인되어 프롬프트(예: `(base) dongwoo@server:~$`)가 뜨면 성공입니다. 창을 닫으면 연결이 끊깁니다.
 2. **백그라운드 모드**: 아무 메시지 없이 바로 명령 프롬프트가 떨어지면 성공입니다. 에러가 날 경우에만 메시지가 뜹니다.
