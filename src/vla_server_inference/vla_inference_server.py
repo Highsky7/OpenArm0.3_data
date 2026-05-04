@@ -50,6 +50,9 @@ class VLAInferenceServer:
         fmvla_n_action_steps: Optional[int] = None,
         fmvla_hold_on_chunk_boundary: bool = True,
         fmvla_hold_max_sec: float = 0.0,
+        fmvla_profile_timing: bool = False,
+        fmvla_timing_warmup_chunks: int = 1,
+        fmvla_timing_report_every_chunks: int = 1,
     ):
         """
         Args:
@@ -73,6 +76,9 @@ class VLAInferenceServer:
         self.fmvla_n_action_steps = fmvla_n_action_steps
         self.fmvla_hold_on_chunk_boundary = fmvla_hold_on_chunk_boundary
         self.fmvla_hold_max_sec = fmvla_hold_max_sec
+        self.fmvla_profile_timing = fmvla_profile_timing
+        self.fmvla_timing_warmup_chunks = max(0, fmvla_timing_warmup_chunks)
+        self.fmvla_timing_report_every_chunks = max(1, fmvla_timing_report_every_chunks)
         self.debug = False
         self.policy = None
         self.preprocessor = None
@@ -91,6 +97,12 @@ class VLAInferenceServer:
         self._fmvla_subgoal_archive_lock = threading.Lock()
         self._fmvla_subgoal_session_dir = None
         self._fmvla_subgoal_counter = 0
+        self._fmvla_timing_lock = threading.Lock()
+        self._fmvla_timing_local = threading.local()
+        self._fmvla_timing_samples = []
+        self._fmvla_timing_chunk_count = 0
+        self._fmvla_timing_ready_elapsed_sec = None
+        self._fmvla_loop_start_ts = None
         
         # ZeroMQ 설정
         self._setup_zmq()
@@ -171,6 +183,7 @@ class VLAInferenceServer:
             self.policy.eval()
             if self.model_type == "fmvla":
                 self._install_fmvla_subgoal_archive_hook()
+                self._install_fmvla_timing_hooks()
             
             # 전처리/후처리기 생성
             preprocessor_overrides = {}
@@ -193,6 +206,9 @@ class VLAInferenceServer:
             if self.model_type == 'fmvla' and self.fmvla_hold_on_chunk_boundary:
                 hold_sec = "infinite" if self.fmvla_hold_max_sec <= 0 else f"{self.fmvla_hold_max_sec:.2f}s"
                 print(f"   FMVLA hold-last-action: enabled (max hold: {hold_sec})")
+            if self.model_type == 'fmvla' and self.fmvla_profile_timing:
+                print("   FMVLA timing profile: enabled")
+                print(f"   FMVLA timing warmup chunks: {self.fmvla_timing_warmup_chunks}")
             
         except ImportError as e:
             print(f"❌ LeRobot 패키지 임포트 실패: {e}")
@@ -256,6 +272,144 @@ class VLAInferenceServer:
 
         encoder.encode_image = encode_image_with_archive
         encoder._openarm_subgoal_archive_hook_installed = True
+
+    def _cuda_synchronize_for_timing(self):
+        """CUDA 비동기 실행을 timing 전에 동기화"""
+        try:
+            import torch
+
+            if torch.cuda.is_available() and str(self.device).startswith("cuda"):
+                torch.cuda.synchronize()
+        except Exception:
+            pass
+
+    def _install_fmvla_timing_hooks(self):
+        """FMVLA policy에 vision planner/action expert chunk timing hook 설치"""
+        if not self.fmvla_profile_timing or self.policy is None:
+            return
+        if getattr(self.policy, "_openarm_fmvla_timing_hook_installed", False):
+            return
+        if not hasattr(self.policy, "predict_action_chunk") or not hasattr(self.policy, "_get_past_key_values"):
+            print("⚠ FMVLA timing hook 설치 실패: 필요한 policy method가 없습니다.")
+            return
+
+        original_get_past_key_values = self.policy._get_past_key_values
+        original_predict_action_chunk = self.policy.predict_action_chunk
+
+        def timed_get_past_key_values(*args, **kwargs):
+            self._cuda_synchronize_for_timing()
+            start = time.perf_counter()
+            result = original_get_past_key_values(*args, **kwargs)
+            self._cuda_synchronize_for_timing()
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            current = getattr(self._fmvla_timing_local, "vision_planner_ms", 0.0)
+            self._fmvla_timing_local.vision_planner_ms = current + elapsed_ms
+            return result
+
+        def timed_predict_action_chunk(*args, **kwargs):
+            self._fmvla_timing_local.vision_planner_ms = 0.0
+            self._cuda_synchronize_for_timing()
+            start = time.perf_counter()
+            result = original_predict_action_chunk(*args, **kwargs)
+            self._cuda_synchronize_for_timing()
+            total_ms = (time.perf_counter() - start) * 1000.0
+            vision_planner_ms = getattr(self._fmvla_timing_local, "vision_planner_ms", 0.0)
+            action_expert_ms = max(0.0, total_ms - vision_planner_ms)
+            self._record_fmvla_timing_sample(vision_planner_ms, action_expert_ms, total_ms)
+            return result
+
+        self.policy._get_past_key_values = timed_get_past_key_values
+        self.policy.predict_action_chunk = timed_predict_action_chunk
+        self.policy._openarm_fmvla_timing_hook_installed = True
+        print("✅ FMVLA timing hook installed (vision planner/action expert)")
+
+    def _record_fmvla_timing_sample(
+        self,
+        vision_planner_ms: float,
+        action_expert_ms: float,
+        total_chunk_ms: float,
+    ):
+        """새 FMVLA action chunk 1개 timing sample 기록"""
+        with self._fmvla_timing_lock:
+            self._fmvla_timing_chunk_count += 1
+            chunk = self._fmvla_timing_chunk_count
+            is_warmup = chunk <= self.fmvla_timing_warmup_chunks
+
+            sample = {
+                "chunk": chunk,
+                "vision_planner_ms": vision_planner_ms,
+                "action_expert_ms": action_expert_ms,
+                "total_chunk_ms": total_chunk_ms,
+                "warmup": is_warmup,
+                "elapsed_since_loop_start_sec": (
+                    None if self._fmvla_loop_start_ts is None else time.time() - self._fmvla_loop_start_ts
+                ),
+            }
+
+            if is_warmup:
+                print(
+                    "[FMVLA_TIMING_WARMUP] "
+                    f"chunk={chunk} vision_planner_ms={vision_planner_ms:.1f} "
+                    f"action_expert_ms={action_expert_ms:.1f} total_chunk_ms={total_chunk_ms:.1f}"
+                )
+                return
+
+            if self._fmvla_timing_ready_elapsed_sec is None:
+                self._fmvla_timing_ready_elapsed_sec = sample["elapsed_since_loop_start_sec"]
+                ready = self._fmvla_timing_ready_elapsed_sec
+                ready_text = "unknown" if ready is None else f"{ready:.3f}"
+                print(f"[FMVLA_TIMING_READY] elapsed_since_loop_start_sec={ready_text}")
+
+            self._fmvla_timing_samples.append(sample)
+            measured = len(self._fmvla_timing_samples)
+            if measured % self.fmvla_timing_report_every_chunks == 0:
+                vp_values = [s["vision_planner_ms"] for s in self._fmvla_timing_samples]
+                ae_values = [s["action_expert_ms"] for s in self._fmvla_timing_samples]
+                print(
+                    "[FMVLA_TIMING] "
+                    f"chunk={chunk} measured_chunks={measured} "
+                    f"vision_planner_ms={vision_planner_ms:.1f} "
+                    f"action_expert_ms={action_expert_ms:.1f} "
+                    f"avg_vision_planner_ms={float(np.mean(vp_values)):.1f} "
+                    f"avg_action_expert_ms={float(np.mean(ae_values)):.1f}"
+                )
+
+    def _print_fmvla_timing_summary(self):
+        """Ctrl+C 종료 시 FMVLA timing 평균 출력"""
+        if not self.fmvla_profile_timing or self.model_type != "fmvla":
+            return
+
+        with self._fmvla_timing_lock:
+            measured = list(self._fmvla_timing_samples)
+            total_chunks = self._fmvla_timing_chunk_count
+            skipped = min(total_chunks, self.fmvla_timing_warmup_chunks)
+
+        print("\n[FMVLA_TIMING_SUMMARY]")
+        print(f"total_chunks_seen={total_chunks}")
+        print(f"skipped_warmup_chunks={skipped}")
+        print(f"measured_chunks={len(measured)}")
+        if self._fmvla_timing_ready_elapsed_sec is not None:
+            print(f"normal_speed_start_elapsed_sec={self._fmvla_timing_ready_elapsed_sec:.3f}")
+        else:
+            print("normal_speed_start_elapsed_sec=N/A")
+
+        if not measured:
+            print("avg_vision_planner_ms=N/A")
+            print("avg_action_expert_ms=N/A")
+            print("reason=no measured chunks after warmup")
+            return
+
+        vp_values = np.array([s["vision_planner_ms"] for s in measured], dtype=np.float64)
+        ae_values = np.array([s["action_expert_ms"] for s in measured], dtype=np.float64)
+        total_values = np.array([s["total_chunk_ms"] for s in measured], dtype=np.float64)
+
+        print(f"avg_vision_planner_ms={vp_values.mean():.1f}")
+        print(f"min_vision_planner_ms={vp_values.min():.1f}")
+        print(f"max_vision_planner_ms={vp_values.max():.1f}")
+        print(f"avg_action_expert_ms={ae_values.mean():.1f}")
+        print(f"min_action_expert_ms={ae_values.min():.1f}")
+        print(f"max_action_expert_ms={ae_values.max():.1f}")
+        print(f"avg_total_chunk_ms={total_values.mean():.1f}")
     
     def _print_banner(self):
         """서버 시작 배너 출력"""
@@ -554,6 +708,7 @@ class VLAInferenceServer:
     def run(self, debug: bool = False):
         """메인 서버 루프"""
         self.debug = debug
+        self._fmvla_loop_start_ts = time.time()
         print("🚀 서버 루프 시작!")
         
         while True:
@@ -608,6 +763,7 @@ class VLAInferenceServer:
     
     def _cleanup(self):
         """리소스 정리"""
+        self._print_fmvla_timing_summary()
         print("\n🧹 리소스 정리 중...")
         self.socket.close()
         self.context.term()
@@ -740,6 +896,23 @@ def main():
         default=0.0,
         help='FMVLA 전용: hold 최대 시간(초). 0 이하는 무기한 hold (기본값: 0.0)'
     )
+    parser.add_argument(
+        '--fmvla_profile_timing',
+        action='store_true',
+        help='FMVLA 전용: vision planner/action expert chunk timing 출력'
+    )
+    parser.add_argument(
+        '--fmvla_timing_warmup_chunks',
+        type=int,
+        default=1,
+        help='FMVLA 전용: 평균에서 제외할 초기 chunk 수 (기본값: 1)'
+    )
+    parser.add_argument(
+        '--fmvla_timing_report_every_chunks',
+        type=int,
+        default=1,
+        help='FMVLA 전용: timing 중간 리포트 주기(chunk 단위, 기본값: 1)'
+    )
     
     args = parser.parse_args()
     
@@ -760,6 +933,9 @@ def main():
         fmvla_n_action_steps=args.fmvla_n_action_steps,
         fmvla_hold_on_chunk_boundary=args.fmvla_hold_on_chunk_boundary,
         fmvla_hold_max_sec=args.fmvla_hold_max_sec,
+        fmvla_profile_timing=args.fmvla_profile_timing,
+        fmvla_timing_warmup_chunks=args.fmvla_timing_warmup_chunks,
+        fmvla_timing_report_every_chunks=args.fmvla_timing_report_every_chunks,
     )
     
     server.run(debug=args.debug)

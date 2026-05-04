@@ -134,6 +134,10 @@ python vla_inference_server.py \
     --fmvla_hold_on_chunk_boundary \
     --fmvla_hold_max_sec 0 \
     --fmvla_lora_scale 1.0 \
+    --no-fmvla_enable_sd3_cpu_offload \
+    --fmvla_profile_timing \
+    --fmvla_timing_warmup_chunks 1 \
+    --fmvla_timing_report_every_chunks 1 \
     --debug
 
 # 필요 시 추가 옵션:
@@ -141,6 +145,7 @@ python vla_inference_server.py \
 #   --fmvla_precomputed_only
 #   --no-fmvla_enable_sd3_cpu_offload
 #   --no-fmvla_hold_on_chunk_boundary   # 기존 즉시 재예측 방식
+#   --fmvla_timing_warmup_chunks 0      # 첫 chunk도 평균에 포함
 ```
 
 > ⚠️ **중요**: `start_server.sh`는 `smolvla/pi0`만 지원합니다. `groot/fmvla`는 반드시 각 전용 환경에서 `python vla_inference_server.py`로 직접 실행하세요.
@@ -174,6 +179,7 @@ python vla_inference_server.py \
 > - 기본값으로 `--fmvla_hold_on_chunk_boundary`가 활성화되어, action queue 경계에서 SD3 chunk 생성 중 마지막 action을 유지합니다.
 > - `--debug`로 실행하면 생성된 모든 subgoal image가 서버의 `src/vla_server_inference/fmvla_subgoals/<세션시각>/subgoal_000001.png` 형태로 추가 저장됩니다.
 > - 위 archive 저장은 **새 action chunk가 생성될 때마다** 1장씩 누적됩니다. 요청 수와 1:1은 아닙니다.
+> - `--fmvla_profile_timing`을 사용하면 첫 warmup chunk 이후부터 `Ctrl+C` 종료 시점까지 Vision Planner와 Action Expert의 chunk 단위 평균 시간이 출력됩니다.
 
 ---
 
@@ -293,6 +299,22 @@ ffprobe -hide_banner ~/ros2_recordings/fmvla_top/<생성된파일명>.mp4
 ---
 
 ### Step 6: VLA 추론 실행 (로봇 laptop에서 실행)
+
+**FMVLA 더미 데이터 원격 추론 테스트 (로봇 hardware/ROS 없이 실행):**
+
+```bash
+cd /home/highsky/OpenArm0.3_data
+
+python3 src/vla_server_inference/fmvla_dummy_client.py \
+    --port 5555 \
+    --rate 30 \
+    --image-size 256 \
+    --task "Put the umbrellas into the basket"
+```
+
+`python3`에 `pyzmq/msgpack/numpy`가 없으면 `pip install pyzmq msgpack numpy`를 먼저 실행하거나 해당 패키지가 설치된 OpenArm VLA Python 환경에서 실행하세요.
+
+서버를 `--fmvla_profile_timing`으로 실행한 상태에서 위 더미 클라이언트를 `Ctrl+C`로 종료한 뒤, 서버도 `Ctrl+C`로 종료하면 서버 로그에 `[FMVLA_TIMING_SUMMARY]`가 출력됩니다.
 
 **Dry-run 테스트 (로봇 제어 비활성화):**
 
