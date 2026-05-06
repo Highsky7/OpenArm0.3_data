@@ -1,11 +1,12 @@
 # VLA 데모 가이드
-## 실행 단계(순서대로 실행 필수!)
+## 1. 통신 추론 실행 단계(순서대로 실행 필수!)
 
-### Step 1: 서버 실행(vla_server tmux sessioin에서 실행)
+### Step 1: 서버 추론 실행(vla_server tmux sessioin에서 실행)
 
 ```bash
 cd ../..
 cd datastore/khdw/OpenArm0.3_data/src/vla_server_inference
+
 (smolvla, pi-0)
 conda activate vla_server
 
@@ -23,7 +24,7 @@ python vla_inference_server.py \
     --model_type groot \
     --debug
 
-(fmvla)
+(tdsr-vla)
 conda activate vla_server_fmvla
 python vla_inference_server.py \
     --policy_path /datastore/khdw/OpenArm0.3_data/checkpoints/fmvla_openarm_0213_1614/checkpoints/022500/pretrained_model \
@@ -47,11 +48,58 @@ python vla_inference_server.py \
 ssh -L 5555:localhost:5555 dongwoo@163.152.193.246
 ```
 
-### Step 3: 중력보상 및 초기 위치(로봇 노트북에서 실행)
+### Step 3: 카메라 실행(로봇 노트북에서 실행)
+
+```bash
+cd realsense_ws
+humble
+si
+ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
+    serial_no1:="'_317322073024'" \
+    serial_no2:="'_326522073051'" \
+    serial_no3:="'_327322071339'"
+```
+
+### Step 4: 중력보상 및 초기 위치(로봇 노트북에서 실행)
 
 ```bash
 cd OpenArm0.3_data
 humble
 si
+ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py enable_replay_mode:=true
+```
 
+### Step5:  추론 client 노드 실행(로봇 노트북에서 항상 마지막에 실행!!)
+
+```bash
+cd OpenArm0.3_data
+humble
+si
+ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
+    task_description:="Move the basket to the right side and put the paper roll in the basket" \
+    enable_control:=true \
+    debug:=true
+```
+
+## 2. 로컬 추론 실행 단계(순서대로 실행 필수!, SmolVLA만 가능)
+
+### Step 1: 중력보상 및 초기 위치(로봇 노트북에서 실행)
+
+```bash
+cd OpenArm0.3_data
+humble
+si
+ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py enable_replay_mode:=true
+```
+### Step2: 추론 실행(로봇 노트북에서 실행)
+
+```bash
+cd OpenArm0.3_data
+humble
+si
+ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
+    policy_path:=/home/mintlabskh/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
+    task_description:="Move the basket to the right side and put the paper roll in the basket" \
+    enable_control:=true \
+    control_arm:=both
 ```
