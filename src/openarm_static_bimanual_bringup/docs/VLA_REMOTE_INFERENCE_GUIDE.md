@@ -215,10 +215,7 @@ ssh -L 5555:localhost:5555 mintlabserver0_dongwoo
 ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py enable_replay_mode:=true
 
 # 터미널 2: 카메라 실행
-ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py \
-    serial_no1:="'_317322073024'" \
-    serial_no2:="'_326522073051'" \
-    serial_no3:="'_327322071339'"
+ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py   camera_name1:=cam_1 camera_name2:=cam_2 camera_name3:=cam_3   camera_namespace1:=camera camera_namespace2:=camera camera_namespace3:=camera   serial_no1:='_346222072155' serial_no2:='_247122072494' serial_no3:='_247122074423'
 ```
 
 ```bash

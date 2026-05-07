@@ -69,7 +69,7 @@ si
 ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py enable_replay_mode:=true
 ```
 
-### Step5:  추론 client 노드 실행(로봇 노트북에서 항상 마지막에 실행!!)
+### Step 5:  추론 client 노드 실행(로봇 노트북에서 항상 마지막에 실행!!)
 
 ```bash
 cd OpenArm0.3_data
@@ -91,7 +91,16 @@ humble
 si
 ros2 launch openarm_static_bimanual_bringup lerobot_trajectory_recording.launch.py enable_replay_mode:=true
 ```
-### Step2: 추론 실행(로봇 노트북에서 실행)
+### Step 2: 카메라 실행(로봇 노트북에서 실행)
+
+```bash
+cd realsense_ws
+humble
+si
+ros2 launch realsense2_camera rs_multi_camera_launch_sync_3.py   camera_name1:=cam_1 camera_name2:=cam_2 camera_name3:=cam_3   camera_namespace1:=camera camera_namespace2:=camera camera_namespace3:=camera   serial_no1:='_346222072155' serial_no2:='_247122072494' serial_no3:='_247122074423'
+```
+
+### Step 3: 추론 실행(로봇 노트북에서 실행)
 
 ```bash
 cd OpenArm0.3_data
