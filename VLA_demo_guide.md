@@ -111,4 +111,10 @@ ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
     task_description:="Move the basket to the right side and put the paper roll in the basket" \
     enable_control:=true \
     control_arm:=both
+
+ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
+    policy_path:=/home/mintlabskh/OpenArm0.3_data/checkpoints/smolvla_openarm_16dim/checkpoints/020000/pretrained_model \
+    task_description:="Put the umbrellas into the basket" \
+    enable_control:=true \
+    control_arm:=both
 ```
