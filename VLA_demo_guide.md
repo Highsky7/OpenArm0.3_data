@@ -1,4 +1,16 @@
 # VLA 데모 가이드
+
+## 0. 재부팅 시 CAN 설정
+
+```bash
+ls /dev/ttyACM*
+sudo slcand -o -c -s8 -S 1000000 /dev/ttyACM0 can0
+sudo ip link set can0 up type can bitrate 1000000
+sudo ip link set can0 txqueuelen 1000
+ip -details link show can0
+candump can0
+```
+
 ## 1. 통신 추론 실행 단계(순서대로 실행 필수!)
 
 ### Step 1: 서버 추론 실행(vla_server tmux sessioin에서 실행)

@@ -90,11 +90,11 @@ class SmolVLAInferenceNode(Node):
         # Declare parameters
         self.declare_parameter('policy_path', '')
         self.declare_parameter('device', 'cuda')
-        self.declare_parameter('inference_rate', 10.0)  # Hz
+        self.declare_parameter('inference_rate', 30.0)  # Hz
         self.declare_parameter('task_description', 'pick up the object')
         self.declare_parameter('action_horizon', 1)
         self.declare_parameter('enable_control', True)
-        self.declare_parameter('safety_velocity_limit', 0.5)  # rad/s
+        self.declare_parameter('safety_velocity_limit', 7.0)  # rad/s
         self.declare_parameter('control_arm', 'left')  # Which arm to control: 'left', 'right', or 'both'
         
         # Get parameters

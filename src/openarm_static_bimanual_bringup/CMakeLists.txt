@@ -44,6 +44,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/scripts)
     scripts/fake_camera_publisher.py
     scripts/simple_state_replay.py
     scripts/vla_remote_client_node.py
+    scripts/smolvla_inference_node.py
     DESTINATION lib/${PROJECT_NAME}
   )
 endif()
