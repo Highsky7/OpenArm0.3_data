@@ -88,6 +88,10 @@ ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
     task_description:="Move the basket to the right side and put the paper roll in the basket" \
     enable_control:=true \
     debug:=true
+ros2 launch openarm_static_bimanual_bringup vla_remote_inference.launch.py \
+    task_description:="Put the umbrellas into the basket" \
+    enable_control:=true \
+    debug:=true
 ```
 
 ## 2. 로컬 추론 실행 단계(순서대로 실행 필수!, SmolVLA만 가능)
