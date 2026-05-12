@@ -99,7 +99,7 @@ class VLARemoteClientNode(Node):
     def _declare_parameters(self):
         """ROS2 파라미터 선언"""
         self.declare_parameter('server_port', 5555)
-        self.declare_parameter('inference_rate', 10.0)
+        self.declare_parameter('inference_rate', 30.0)
         self.declare_parameter('enable_control', False)  # 기본값 False (안전)
         self.declare_parameter('task_description', 'manipulation task')
         self.declare_parameter('debug', True)
