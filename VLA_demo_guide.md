@@ -13,7 +13,7 @@ candump can0
 
 ## 1. 통신 추론 실행 단계(순서대로 실행 필수!)
 
-### Step 1: 서버 추론 실행(vla_server tmux sessioin에서 실행)
+### Step 1: 서버 추론 실행(vla_server tmux session에서 실행)
 
 ```bash
 cd ../..
