@@ -1,0 +1,43 @@
+teleop_serial_bridge:
+  ros__parameters:
+    serial_port: /dev/ttyUSB0
+    serial_baud: 500000
+    serial_timeout_sec: 0.05
+    input_unit: rad
+    control_rate_hz: 150.0
+
+    left_joint_names: [left_rev1, left_rev2, left_rev3, left_rev4, left_rev5, left_rev6, left_rev7]
+    right_joint_names: [right_rev1, right_rev2, right_rev3, right_rev4, right_rev5, right_rev6, right_rev7]
+    left_joint_indices: [0, 1, 2, 3, 4, 5, 6]
+    right_joint_indices: [0, 1, 2, 3, 4, 5, 6]
+    enable_grippers: true
+    left_gripper_joint_name: left_rev8
+    right_gripper_joint_name: right_rev8
+    left_gripper_index: 7
+    right_gripper_index: 7
+    flat_left_joint_indices: [0, 1, 2, 3, 4, 5, 6]
+    flat_right_joint_indices: [7, 8, 9, 10, 11, 12, 13]
+    flat_left_gripper_index: 7
+    flat_right_gripper_index: 15
+    gripper_clip_to_urdf: false
+    gripper_unit: input
+    min_gripper: -0.05
+    max_gripper: 1.2
+
+    warmup_sec: 3.0
+    startup_ramp_sec: 5.0
+    auto_switch_controllers: false
+    switch_retry_period_sec: 2.0
+    enable_sample_step_filter: true
+    max_sample_step_rad: 0.35
+    max_gripper_sample_step_rad: 0.35
+
+    robot_description_node: robot_state_publisher
+    robot_description_param: robot_description
+
+    left_jtc_controller: left_joint_trajectory_controller
+    right_jtc_controller: right_joint_trajectory_controller
+    left_fpc_controller: left_forward_position_controller
+    right_fpc_controller: right_forward_position_controller
+    left_teleop_stream_controller: left_teleop_stream_controller
+    right_teleop_stream_controller: right_teleop_stream_controller

@@ -32,6 +32,12 @@ def generate_launch_description():
 
         DeclareLaunchArgument("active_mode", default_value="jtc"),  # jtc | fpc | teleop
 
+        # Teleop serial bridge
+        DeclareLaunchArgument("enable_teleop_serial", default_value="false"),
+        DeclareLaunchArgument("teleop_serial_config", default_value="teleop_serial.yaml"),
+        DeclareLaunchArgument("teleop_serial_port", default_value="/dev/ttyUSB0"),
+        DeclareLaunchArgument("teleop_serial_baud", default_value="500000"),
+
         # 그리퍼(기본 비활성)
         DeclareLaunchArgument("enable_gripper_left",  default_value="false"),
         DeclareLaunchArgument("enable_gripper_right", default_value="false"),
@@ -68,6 +74,11 @@ def generate_launch_description():
     gui  = LaunchConfiguration("gui")
     rviz = LaunchConfiguration("rviz")
 
+    enable_teleop_serial = LaunchConfiguration("enable_teleop_serial")
+    teleop_serial_config = LaunchConfiguration("teleop_serial_config")
+    teleop_serial_port = LaunchConfiguration("teleop_serial_port")
+    teleop_serial_baud = LaunchConfiguration("teleop_serial_baud")
+
     enable_gripper_left  = LaunchConfiguration("enable_gripper_left")
     enable_gripper_right = LaunchConfiguration("enable_gripper_right")
     gripper_left_port  = LaunchConfiguration("gripper_left_port")
@@ -79,6 +90,11 @@ def generate_launch_description():
     xacro_path = PathJoinSubstitution([FindPackageShare(description_package), "urdf", description_file])
     controllers_yaml = PathJoinSubstitution([FindPackageShare(runtime_config_package), "config", controllers_file])
     rviz_config_file = PathJoinSubstitution([FindPackageShare(description_package), "rviz", "robot_description.rviz"])
+    teleop_serial_yaml = PathJoinSubstitution([
+        FindPackageShare("openarm_static_bimanual_bringup"),
+        "config",
+        teleop_serial_config,
+    ])
 
     # ===== robot_description =====
     robot_description_cmd = Command([
@@ -173,10 +189,20 @@ def generate_launch_description():
     # ===== active_mode 조건 (문자열 비교만) =====
     is_jtc    = IfCondition(PythonExpression(["'", active_mode, "' == 'jtc'"]))
     not_jtc   = IfCondition(PythonExpression(["'", active_mode, "' != 'jtc'"]))
-    is_fpc    = IfCondition(PythonExpression(["'", active_mode, "' == 'fpc'"]))
-    not_fpc   = IfCondition(PythonExpression(["'", active_mode, "' != 'fpc'"]))
+    is_fpc    = IfCondition(PythonExpression([
+        "'", active_mode, "' == 'fpc' or ('", active_mode, "' == 'teleop' and '", enable_teleop_serial, "' == 'true')"
+    ]))
+    not_fpc   = IfCondition(PythonExpression([
+        "'", active_mode, "' != 'fpc' and ('", active_mode, "' != 'teleop' or '", enable_teleop_serial, "' != 'true')"
+    ]))
     is_teleop = IfCondition(PythonExpression(["'", active_mode, "' == 'teleop'"]))
     not_tele  = IfCondition(PythonExpression(["'", active_mode, "' != 'teleop'"]))
+    is_teleop_serial = IfCondition(PythonExpression([
+        "'", active_mode, "' == 'teleop' and '", enable_teleop_serial, "' == 'true'"
+    ]))
+    is_teleop_stream = IfCondition(PythonExpression([
+        "'", active_mode, "' == 'teleop' and '", enable_teleop_serial, "' != 'true'"
+    ]))
 
     # ===== Controllers (JTC/FPC/Teleop) =====
     left_jtc_active = Node(
@@ -224,34 +250,41 @@ def generate_launch_description():
     left_teleop_active = Node(
         package="controller_manager", executable="spawner",
         arguments=["left_teleop_stream_controller", "-c", "/controller_manager"],
-        output="screen", condition=is_teleop,
+        output="screen", condition=is_teleop_stream,
     )
     right_teleop_active = Node(
         package="controller_manager", executable="spawner",
         arguments=["right_teleop_stream_controller", "-c", "/controller_manager"],
-        output="screen", condition=is_teleop,
+        output="screen", condition=is_teleop_stream,
     )
     left_teleop_inactive = Node(
         package="controller_manager", executable="spawner",
         arguments=["left_teleop_stream_controller", "-c", "/controller_manager", "--inactive"],
-        output="screen", condition=not_tele,
+        output="screen", condition=IfCondition(PythonExpression([
+            "'", active_mode, "' != 'teleop' or '", enable_teleop_serial, "' == 'true'"
+        ])),
     )
     right_teleop_inactive = Node(
         package="controller_manager", executable="spawner",
         arguments=["right_teleop_stream_controller", "-c", "/controller_manager", "--inactive"],
-        output="screen", condition=not_tele,
+        output="screen", condition=IfCondition(PythonExpression([
+            "'", active_mode, "' != 'teleop' or '", enable_teleop_serial, "' == 'true'"
+        ])),
     )
 
     teleop_follower_node = Node(
         package="openarm_static_bimanual_bringup",
-        executable="teleop_follower.py",
-        name="teleop_follower",
+        executable="teleop_serial_bridge.py",
+        name="teleop_serial_bridge",
         output="screen",
-        parameters=[{
-            "left_controller":  "left_teleop_stream_controller",
-            "right_controller": "right_teleop_stream_controller",
-        }],
-        condition=IfCondition("false"),  # ← 파일 생길 때까지 절대 실행 안 함
+        parameters=[
+            teleop_serial_yaml,
+            {
+                "serial_port": teleop_serial_port,
+                "serial_baud": teleop_serial_baud,
+            },
+        ],
+        condition=is_teleop_serial,
     )
 
     # ===== CAN Gripper Controllers (rev8) - 실제 하드웨어에서만 spawn =====
@@ -260,7 +293,7 @@ def generate_launch_description():
         arguments=["left_gripper_controller", "-c", "/controller_manager"],
         output="screen",
         condition=IfCondition(PythonExpression([
-            "'", use_mock_hardware, "' == 'false'"
+            "'", use_mock_hardware, "' == 'false' or ('", active_mode, "' == 'teleop' and '", enable_teleop_serial, "' == 'true')"
         ])),
     )
     right_gripper_can_active = Node(
@@ -268,7 +301,7 @@ def generate_launch_description():
         arguments=["right_gripper_controller", "-c", "/controller_manager"],
         output="screen",
         condition=IfCondition(PythonExpression([
-            "'", use_mock_hardware, "' == 'false'"
+            "'", use_mock_hardware, "' == 'false' or ('", active_mode, "' == 'teleop' and '", enable_teleop_serial, "' == 'true')"
         ])),
     )
 
@@ -352,4 +385,3 @@ def generate_launch_description():
             spawn_after_jsb,
         ]
     )
-

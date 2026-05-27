@@ -14,6 +14,12 @@
   <!-- Core ROS dependencies -->
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>controller_manager_msgs</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>urdf_parser_py</depend>
+  <exec_depend>python3-serial</exec_depend>
 
   <!-- ROS2 control stack -->
   <depend>controller_manager</depend>

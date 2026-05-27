@@ -4,7 +4,7 @@
 
 ```bash
 ls /dev/ttyACM*
-sudo slcand -o -c -s8 -S 1000000 /dev/ttyACM0 can0
+sudo slcand -o -c -s8 -S 1000000 /dev/ttyACM2 can0
 sudo ip link set can0 up type can bitrate 1000000
 sudo ip link set can0 txqueuelen 1000
 ip -details link show can0
@@ -131,3 +131,12 @@ ros2 launch openarm_static_bimanual_bringup smolvla_inference.launch.py \
     enable_control:=true \
     control_arm:=both
 ```
+
+
+ros2 launch openarm_static_bimanual_bringup sbopenarm.launch.py \
+  active_mode:=teleop \
+  enable_teleop_serial:=true \
+  teleop_serial_port:=/dev/ttyUSB0 \
+  use_mock_hardware:=false \
+  disable_torque:=false \
+  use_grippers:=true

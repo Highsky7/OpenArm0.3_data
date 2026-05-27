@@ -5,7 +5,7 @@
 
 controller_manager:
   ros__parameters:
-    update_rate: 100  # Hz
+    update_rate: 200  # Hz
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -45,7 +45,7 @@ controller_manager:
 # ================= Joint State Broadcaster =================
 joint_state_broadcaster:
   ros__parameters:
-    publish_rate: 100.0  # Hz - /joint_states 토픽 발행 주기
+    publish_rate: 200.0  # Hz - /joint_states 토픽 발행 주기
 
 # ================= Left arm =================
 left_forward_position_controller:

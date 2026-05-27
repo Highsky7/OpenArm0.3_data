@@ -32,7 +32,7 @@ def generate_launch_description():
     
     inference_rate_arg = DeclareLaunchArgument(
         'inference_rate',
-        default_value='10.0',
+        default_value='30.0',
         description='추론 요청 주기 (Hz)'
     )
     
